@@ -24,8 +24,9 @@ func main() {
 	filterMode := flag.Bool("filter", false, "headless: print only important lines to stdout")
 	contextN := flag.Int("context", 3, "leading context lines shown before each important line")
 	capacity := flag.Int("scrollback", 5000, "max entries kept in memory")
-	notify := flag.Bool("notify", false, "fire coalesced desktop notifications on important lines")
-	cooldown := flag.Duration("cooldown", 60*time.Second, "minimum spacing between notifications")
+	notify := flag.Bool("notify", false, "fire a desktop notification when fresh errors occur")
+	notifyMaxAge := flag.Duration("notify-max-age", time.Second, "skip notifications for errors older than this (by their log timestamp)")
+	notifyReset := flag.Duration("notify-reset", 15*time.Second, "end an error burst after this quiet gap, so the next error notifies again")
 	flag.Parse()
 
 	if *filterMode {
@@ -41,7 +42,7 @@ func main() {
 	var coalescer *alert.Coalescer
 	var notifier alert.Notifier
 	if *notify {
-		coalescer = alert.NewCoalescer(*cooldown, nil)
+		coalescer = alert.NewCoalescer(*notifyMaxAge, *notifyReset, nil)
 		notifier = alert.BeeepNotifier{}
 	}
 
@@ -52,6 +53,7 @@ func main() {
 	go func() {
 		err := ingest.Lines(os.Stdin, func(line []byte) {
 			e := adapter.ParseLine(line)
+			e.Received = time.Now()
 			e.Important = engine.IsImportant(e)
 			if coalescer != nil && e.Important {
 				if fire, title, body := coalescer.Observe(e); fire {

@@ -22,7 +22,11 @@ var (
 	gapStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	moreStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	tsStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 )
+
+// tsLayout formats the per-line ingest time as HH:MM:SS.mmm (no date).
+const tsLayout = "15:04:05.000"
 
 type Model struct {
 	ch       <-chan entry.Entry
@@ -225,23 +229,27 @@ func (m Model) listView(width int) string {
 	start, end := m.listWindow()
 	for i := start; i < end; i++ {
 		row := m.rows[i]
-		line := truncate(row.Entry.Message, width-2)
-		styled := line
+		// Preface each line with the wall-clock time we ingested it (no date),
+		// e.g. 15:04:05.000. Budget the message width around the prefix, the
+		// timestamp, and one separating space.
+		ts := row.Entry.Received.Format(tsLayout)
+		msg := truncate(row.Entry.Message, width-len(ts)-3)
 		switch row.Kind {
 		case RowImportant:
-			styled = impStyle.Render(line)
+			msg = impStyle.Render(msg)
 		case RowContext:
-			styled = dimStyle.Render(line)
+			msg = dimStyle.Render(msg)
 		}
+		line := tsStyle.Render(ts) + " " + msg
 		prefix := "  "
 		if i == m.selected {
 			prefix = "▶ "
-			styled = selStyle.Render(styled)
+			line = selStyle.Render(line)
 		}
 		if row.GapBefore && i != start {
 			b.WriteString(gapStyle.Render("  ⋯") + "\n")
 		}
-		b.WriteString(prefix + styled + "\n")
+		b.WriteString(prefix + line + "\n")
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }

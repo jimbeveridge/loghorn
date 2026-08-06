@@ -71,7 +71,8 @@ func ParseSeverity(s string) Severity {
 type Entry struct {
 	Raw           []byte
 	Format        Format
-	Timestamp     time.Time
+	Timestamp     time.Time // the log line's own timestamp (may be zero)
+	Received      time.Time // wall-clock time clog ingested the line
 	Severity      Severity
 	HTTPStatus    int
 	Message       string

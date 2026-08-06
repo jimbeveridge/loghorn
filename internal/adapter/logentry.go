@@ -33,14 +33,23 @@ func (LogEntryAdapter) Parse(line []byte) (entry.Entry, error) {
 			e.HTTPStatus = int(st)
 		}
 	}
-	if ts, ok := obj["timestamp"].(string); ok {
-		if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
-			e.Timestamp = parsed
-		}
-	}
+	e.Timestamp = logEntryTimestamp(obj)
 	e.Message = logEntryMessage(obj)
 	e.CorrelationID = correlationID(obj)
 	return e, nil
+}
+
+// logEntryTimestamp parses the entry's own timestamp. Canonical LogEntry uses
+// `timestamp`, but real producers (e.g. pino) emit `time` — accept either.
+func logEntryTimestamp(obj map[string]any) time.Time {
+	for _, k := range []string{"timestamp", "time"} {
+		if ts, ok := obj[k].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
 }
 
 // logEntryMessage picks the best human-facing message: textPayload, then

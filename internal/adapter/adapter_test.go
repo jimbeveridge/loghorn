@@ -2,9 +2,23 @@ package adapter
 
 import (
 	"testing"
+	"time"
 
 	"clog/internal/entry"
 )
+
+func TestLogEntryTimeAlias(t *testing.T) {
+	// Real producers (pino) use `time`, not the canonical `timestamp`.
+	a := LogEntryAdapter{}
+	e, err := a.Parse([]byte(`{"severity":"INFO","time":"2026-07-15T23:58:30.636Z","message":"m"}`))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	want, _ := time.Parse(time.RFC3339, "2026-07-15T23:58:30.636Z")
+	if !e.Timestamp.Equal(want) {
+		t.Fatalf("`time` should populate Timestamp: got %v, want %v", e.Timestamp, want)
+	}
+}
 
 func TestLogEntryParse(t *testing.T) {
 	line := []byte(`{"severity":"ERROR","httpRequest":{"status":503},"textPayload":"boom","timestamp":"2026-08-05T10:00:00Z"}`)

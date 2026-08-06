@@ -33,8 +33,8 @@ JSON* — plus the two things that make it trustworthy on a live tail (alerts, s
 - **Headless `clog --filter`**: same engine, no UI — emit important raw lines to stdout.
 - **Coalesced desktop alerting**: opt-in; notify on important matches with a per-run cooldown
   and rolling summary count (injected-clock-testable coalescer). macOS + Linux.
-- Configuration via **CLI flags only** (e.g. `--context N`, `--filter`, `--notify`,
-  `--cooldown`). No config file yet.
+- Configuration via **CLI flags only** (e.g. `--context N`, `--filter`, `--notify`). No config
+  file yet. (Notification flags were refined post-v0 — see v0.x below.)
 
 Deferred out of v0: the query grid, interactive search, search-to-rule, a config file, mouse.
 
@@ -52,6 +52,13 @@ Shipped after v0 in response to real use:
   view) and `▲N` (older lines above), counted over the active display set.
 - **Follow semantics**: follow ⇔ parked on the newest row — pressing down at the bottom no
   longer flips to PAUSED, and `G` (or walking down to the tail) resumes follow.
+- **Per-line ingest time**: each list line is prefaced with the wall-clock time clog received
+  it, `HH:MM:SS.mmm` (no date).
+- **Refined error notifications** (`--notify`): fire once per error burst — a burst ends after
+  a quiet gap (`--notify-reset`, default 15s) so the next error notifies again — and skip
+  errors whose own log timestamp is older than `--notify-max-age` (default 1s), so replaying an
+  old file stays quiet. The LogEntry adapter now also reads the pino-style `time` field as a
+  timestamp alias (pulled forward from v1 to support the freshness gate).
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —
 bubbletea's transitive deps (`colorprofile`, `x/ansi`, `x/cellbuf`) require it, and `go mod
