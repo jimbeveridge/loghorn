@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	keyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))  // blue
-	strStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("green"))
-	numStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
-	boolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("212")) // magenta-ish
-	nullStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // gray
+	keyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")) // blue
+	strStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("green"))
+	numStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
+	boolStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")) // magenta-ish
+	nullStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // gray
 )
 
 // RenderJSON pretty-prints a decoded JSON value with sorted keys and 2-space
