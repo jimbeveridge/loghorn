@@ -75,3 +75,33 @@ func TestLogEntryCorrelationID(t *testing.T) {
 		t.Fatalf("CorrelationID = %q, want empty", e.CorrelationID)
 	}
 }
+
+func TestParseLineRawText(t *testing.T) {
+	e := ParseLine([]byte("just a plain log line"))
+	if e.Format != entry.FormatRawText {
+		t.Fatalf("Format = %v, want FormatRawText", e.Format)
+	}
+	if e.Message != "just a plain log line" {
+		t.Fatalf("Message = %q", e.Message)
+	}
+	if e.Malformed {
+		t.Fatalf("plain text is not malformed")
+	}
+}
+
+func TestParseLineMalformedJSON(t *testing.T) {
+	e := ParseLine([]byte(`{"severity":"ERROR" broken`))
+	if e.Format != entry.FormatRawText {
+		t.Fatalf("malformed JSON should fall back to raw text")
+	}
+	if !e.Malformed {
+		t.Fatalf("malformed JSON should set Malformed=true")
+	}
+}
+
+func TestParseLineValidJSON(t *testing.T) {
+	e := ParseLine([]byte(`{"severity":"INFO","textPayload":"ok"}`))
+	if e.Format != entry.FormatLogEntry {
+		t.Fatalf("valid JSON should parse as LogEntry")
+	}
+}
