@@ -35,6 +35,9 @@ func TestBuildDisplayContextAndHiding(t *testing.T) {
 	if rows[0].Kind != RowContext {
 		t.Fatalf("r2 should be RowContext")
 	}
+	if !rows[0].GapBefore {
+		t.Fatalf("r2 (first visible at index 1) should have GapBefore=true (r1 hidden)")
+	}
 }
 
 func TestBuildDisplayOverlapNoDuplicate(t *testing.T) {
@@ -57,6 +60,9 @@ func TestBuildDisplayGapMarker(t *testing.T) {
 	// E1 (index0), then context r3 (index3), E2 (index4). r3 is not contiguous with E1.
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d (%v)", len(rows), rows)
+	}
+	if rows[0].GapBefore {
+		t.Fatalf("E1 (first visible at index 0) should have GapBefore=false")
 	}
 	if rows[1].Entry.Message != "r3" || !rows[1].GapBefore {
 		t.Fatalf("r3 should start a new group with GapBefore=true: %+v", rows[1])

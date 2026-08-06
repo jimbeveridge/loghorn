@@ -56,7 +56,7 @@ func BuildDisplay(entries []entry.Entry, contextN int) []Row {
 	}
 
 	rows := make([]Row, 0, len(order))
-	prev := -2
+	prev := -1
 	for _, i := range order {
 		rows = append(rows, Row{
 			Entry:     entries[i],
