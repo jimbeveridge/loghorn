@@ -131,19 +131,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selected < len(m.rows)-1 {
 			m.selected++
 		}
-		m.follow = false
+		// Follow iff parked on the newest row. Pressing down while already at
+		// the bottom must NOT pause (there's nowhere to go); walking down to
+		// the tail resumes follow.
+		m.follow = len(m.rows) > 0 && m.selected == len(m.rows)-1
 	case "k", "up":
 		if m.selected > 0 {
 			m.selected--
+			m.follow = false // moved up, away from the live tail → pause
 		}
-		m.follow = false
 	case "g":
 		m.selected = 0
-		m.follow = false
+		m.follow = len(m.rows) <= 1 // top is the tail only with a single row
 	case "G":
 		if len(m.rows) > 0 {
 			m.selected = len(m.rows) - 1
 		}
+		m.follow = true // jump to newest → resume follow
 	}
 	return m, nil
 }

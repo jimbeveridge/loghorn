@@ -11,7 +11,7 @@ Status legend: **next** · planned · later · done
 
 ---
 
-## v0 — walking skeleton + live trust  ·  **next**
+## v0 — walking skeleton + live trust  ·  **done**
 
 The core promise end to end — *pipe logs in, see the important lines with context, inspect the
 JSON* — plus the two things that make it trustworthy on a live tail (alerts, scriptability).
@@ -37,6 +37,25 @@ JSON* — plus the two things that make it trustworthy on a live tail (alerts, s
   `--cooldown`). No config file yet.
 
 Deferred out of v0: the query grid, interactive search, search-to-rule, a config file, mouse.
+
+## v0.x — post-v0 polish  ·  done
+
+Shipped after v0 in response to real use:
+
+- **Scrollable, wrapping detail pane** (`bubbles/viewport`): long LogEntry JSON no longer
+  overflows the screen or clips wide values off the right edge — content wraps to the pane and
+  scrolls, with an `[all shown]` / `[NN%]` scroll indicator. (This was the final review's top
+  v1 item; done early.)
+- **Reliable keyboard + resize when piping**: because stdin is the log stream, the TUI reads
+  key and resize events from `/dev/tty`; the layout reflows live on terminal resize.
+- **Unseen-content indicator**: the status bar shows `▼N new` (paused, with newer lines out of
+  view) and `▲N` (older lines above), counted over the active display set.
+- **Follow semantics**: follow ⇔ parked on the newest row — pressing down at the bottom no
+  longer flips to PAUSED, and `G` (or walking down to the tail) resumes follow.
+
+Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —
+bubbletea's transitive deps (`colorprofile`, `x/ansi`, `x/cellbuf`) require it, and `go mod
+tidy` raises the `go` directive automatically.
 
 ## v1 — config & query-by-example  ·  planned
 
