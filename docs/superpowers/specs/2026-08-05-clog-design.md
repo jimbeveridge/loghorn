@@ -54,6 +54,26 @@ is format-agnostic; LogEntry is the first adapter, not the architecture.
 
 ## 3. Scope
 
+### Delivery slices
+
+This document is the **north star** — the full design. It ships in slices; see
+`docs/ROADMAP.md` for the living, ordered backlog. Summary:
+
+- **v0 (first shippable MVP)** — the walking skeleton that delivers the core promise end to
+  end, plus the two capabilities that make it trustworthy live: stdin ingestion; LogEntry + raw
+  text adapters (mixed, per-line); a **fixed, hardcoded OR'd "failures" engine** (no
+  user-defined filters yet); bounded ring buffer; two-pane TUI (list + on-demand jq detail) with
+  hide-plus-`N`-context and follow/pause; **headless `--filter`**; and **coalesced desktop
+  alerting** on important matches. Configuration is via **CLI flags only** in v0.
+- **v1 — config & query** — TOML config file; the QBE **spreadsheet query grid**; interactive
+  search; **search-to-rule**; per-filter `notify` flags; importance generalized to
+  **union-of-filters** (this is where the cross-field-OR decision lands: one grid = one
+  conjunctive filter, a line is important if it matches *any* active filter).
+- **Post-MVP horizon** — additional format adapters; **derived/aggregate importance**
+  (windowed, e.g. p99 SQL latency); the **Lotus-1-2-3 text-mode spreadsheet** mode.
+
+Everything below describes the full MVP feature set; the slices above sequence it.
+
 ### MVP (v1)
 
 - stdin ingestion; **two auto-detected formats, mixed in one stream**: GCP LogEntry JSON and
