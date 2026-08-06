@@ -40,7 +40,7 @@ func (c *Coalescer) Observe(e entry.Entry) (bool, string, string) {
 		title := "clog: important log activity"
 		var body string
 		if c.suppressed > 0 {
-			body = fmt.Sprintf("%d events in the last %s", c.suppressed+1, c.cooldown)
+			body = fmt.Sprintf("%d events since last alert", c.suppressed+1)
 		} else {
 			body = single(e)
 		}

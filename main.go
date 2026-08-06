@@ -45,8 +45,12 @@ func main() {
 		notifier = alert.BeeepNotifier{}
 	}
 
+	// errCh carries a non-EOF stdin read error from the producer goroutine to
+	// main. It's buffered so the goroutine never blocks sending it, even if
+	// the TUI has already quit (e.g. via 'q') and nobody is listening yet.
+	errCh := make(chan error, 1)
 	go func() {
-		_ = ingest.Lines(os.Stdin, func(line []byte) {
+		err := ingest.Lines(os.Stdin, func(line []byte) {
 			e := adapter.ParseLine(line)
 			e.Important = engine.IsImportant(e)
 			if coalescer != nil && e.Important {
@@ -57,14 +61,26 @@ func main() {
 			ch <- e
 		})
 		close(ch)
+		errCh <- err
 	}()
 
 	p := tea.NewProgram(
 		tui.NewModel(ch, *capacity, *contextN),
 		tea.WithAltScreen(),
 	)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "clog:", err)
+	_, runErr := p.Run()
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "clog:", runErr)
 		os.Exit(1)
+	}
+	// The producer may still be running if the TUI quit before stdin was
+	// fully drained (e.g. the user pressed 'q'); don't block exit waiting
+	// for it. Only report an error that was already available.
+	select {
+	case err := <-errCh:
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "clog: input error:", err)
+		}
+	default:
 	}
 }

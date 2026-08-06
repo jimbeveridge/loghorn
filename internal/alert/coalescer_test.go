@@ -20,7 +20,7 @@ func TestCoalescerFiresThenSuppressesThenSummarizes(t *testing.T) {
 	if !fire {
 		t.Fatalf("first event should fire")
 	}
-	if strings.Contains(body, "events in the last") {
+	if strings.Contains(body, "events since last alert") {
 		t.Fatalf("first fire should be a single-event body, got %q", body)
 	}
 
@@ -40,7 +40,7 @@ func TestCoalescerFiresThenSuppressesThenSummarizes(t *testing.T) {
 	if !fire {
 		t.Fatalf("event after cooldown should fire")
 	}
-	if !strings.Contains(body, "events in the last") {
+	if !strings.Contains(body, "events since last alert") {
 		t.Fatalf("post-cooldown fire should summarize, got %q", body)
 	}
 }
