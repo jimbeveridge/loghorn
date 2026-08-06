@@ -1,0 +1,6 @@
+{"severity":"INFO","textPayload":"serving request","httpRequest":{"status":200}}
+{"severity":"ERROR","textPayload":"db connection refused"}
+regular stdout line from the app
+{"severity":"INFO","textPayload":"health check ok","httpRequest":{"status":200}}
+{"httpRequest":{"status":503},"textPayload":"upstream unavailable"}
+panic: runtime error: invalid memory address
