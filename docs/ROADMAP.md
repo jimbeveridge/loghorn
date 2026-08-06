@@ -16,10 +16,13 @@ Status legend: **next** · planned · later · done
 The core promise end to end — *pipe logs in, see the important lines with context, inspect the
 JSON* — plus the two things that make it trustworthy on a live tail (alerts, scriptability).
 
-- stdin ingestion; line splitter (bounded, big-line-safe; group multi-line raw stack traces).
+- stdin ingestion; line splitter (bounded, big-line-safe). One physical line → one entry in
+  v0; multi-line raw stack-trace grouping is deferred to v1.
 - Two format adapters, auto-detected **per line**, mixed in one stream: **GCP LogEntry JSON**
   and **raw text**. Malformed JSON / non-UTF8 → treated as raw and flagged, never crash.
-- Normalized `Entry` (raw bytes, format, timestamp, ordered-enum severity, JSONPath field view).
+- Normalized `Entry` (raw bytes, format, timestamp, ordered-enum severity, and **typed
+  accessors** — severity, HTTP status, message). General JSONPath resolution arrives with the
+  query grid in v1.
 - **Fixed, hardcoded "failures" engine** (OR'd in code): `severity >= ERROR` OR
   `httpRequest.status >= 500` OR text matches `panic|fatal|exception|traceback`.
   *(No user-defined filters in v0 — this sidesteps the cross-field-OR decision until v1.)*
@@ -37,6 +40,8 @@ Deferred out of v0: the query grid, interactive search, search-to-rule, a config
 
 ## v1 — config & query-by-example  ·  planned
 
+- **Multi-line raw grouping** (stack traces) and general **JSONPath field resolution** (needed
+  by the query grid), both deferred out of v0.
 - TOML config file (`~/.config/clog/config.toml`, overridable by `./clog.toml`): default +
   saved filters, context `N`, colors, keybindings, alert cooldowns.
 - **QBE spreadsheet query grid**: one column per predicate — header = field (JSONPath), row 2 =
