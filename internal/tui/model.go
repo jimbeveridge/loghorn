@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -32,7 +33,7 @@ type Model struct {
 	follow   bool
 
 	showDetail bool
-	detail     string
+	detail     viewport.Model
 
 	width, height int
 }
@@ -43,6 +44,7 @@ func NewModel(ch <-chan entry.Entry, capacity, contextN int) Model {
 		ring:     buffer.New(capacity),
 		contextN: contextN,
 		follow:   true,
+		detail:   viewport.New(0, 0),
 	}
 }
 
@@ -67,6 +69,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.showDetail {
+			m.detail.Width, m.detail.Height = m.detailDims()
+		}
 		return m, nil
 
 	case entryMsg:
@@ -87,14 +92,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
+	// Quit works from anywhere.
+	if s := msg.String(); s == "q" || s == "ctrl+c" {
 		return m, tea.Quit
-	case "esc":
-		m.showDetail = false
+	}
+
+	// When the detail pane is open it owns the keyboard: Esc closes it, and
+	// every other key scrolls the viewport (j/k, arrows, page keys).
+	if m.showDetail {
+		if msg.String() == "esc" {
+			m.showDetail = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
+	}
+
+	// List mode.
+	switch msg.String() {
 	case "enter":
 		if len(m.rows) > 0 {
-			m.detail = m.renderDetail(m.rows[m.selected].Entry)
+			m.detail.Width, m.detail.Height = m.detailDims()
+			m.detail.SetContent(renderDetail(m.rows[m.selected].Entry))
+			m.detail.GotoTop()
 			m.showDetail = true
 		}
 	case " ":
@@ -123,7 +144,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) renderDetail(e entry.Entry) string {
+// detailDims returns the width and height of the detail pane, matching the
+// split layout used by View (list takes the left half, detail the right).
+func (m Model) detailDims() (w, h int) {
+	listWidth := m.width / 2
+	w = m.width - listWidth - 1
+	if w < 1 {
+		w = 1
+	}
+	h = m.height - 1 // reserve the status bar line
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func renderDetail(e entry.Entry) string {
 	if e.JSON != nil {
 		return RenderJSON(e.JSON, false)
 	}
@@ -134,19 +170,13 @@ func (m Model) View() string {
 	if m.width == 0 {
 		return "starting clog…"
 	}
-	listWidth := m.width
-	var detail string
 	if m.showDetail {
-		listWidth = m.width / 2
-		detail = m.detailView(m.width - listWidth - 1)
+		listWidth := m.width / 2
+		list := m.listView(listWidth)
+		body := lipgloss.JoinHorizontal(lipgloss.Top, list, " ", m.detail.View())
+		return body + "\n" + m.statusBar()
 	}
-
-	list := m.listView(listWidth)
-	body := list
-	if m.showDetail {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, list, " ", detail)
-	}
-	return body + "\n" + m.statusBar()
+	return m.listView(m.width) + "\n" + m.statusBar()
 }
 
 func (m Model) listView(width int) string {
@@ -186,11 +216,11 @@ func (m Model) listView(width int) string {
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
-func (m Model) detailView(width int) string {
-	return lipgloss.NewStyle().Width(width).Render(m.detail)
-}
-
 func (m Model) statusBar() string {
+	if m.showDetail {
+		return statusStyle.Render(
+			" clog · detail · j/k scroll · space page · esc close · q quit")
+	}
 	mode := "PAUSED"
 	if m.follow {
 		mode = "FOLLOW"
