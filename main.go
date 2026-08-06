@@ -64,10 +64,18 @@ func main() {
 		errCh <- err
 	}()
 
-	p := tea.NewProgram(
-		tui.NewModel(ch, *capacity, *contextN),
-		tea.WithAltScreen(),
-	)
+	// clog consumes stdin for logs, so Bubble Tea can't use it for the UI:
+	// keyboard AND resize (SIGWINCH) events must come from the controlling
+	// terminal. Wire /dev/tty as the program input; without it Bubble Tea tries
+	// to read key/resize input from the piped stdin, which delivers neither, so
+	// the TUI never learns the terminal was resized. Fall back to the default
+	// if there is no controlling tty (e.g. a headless environment).
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		defer tty.Close()
+		opts = append(opts, tea.WithInput(tty))
+	}
+	p := tea.NewProgram(tui.NewModel(ch, *capacity, *contextN), opts...)
 	_, runErr := p.Run()
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "clog:", runErr)

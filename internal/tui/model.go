@@ -21,6 +21,7 @@ var (
 	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 	gapStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	moreStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 )
 
 type Model struct {
@@ -190,21 +191,35 @@ func (m Model) View() string {
 	return m.listView(m.width) + "\n" + m.statusBar()
 }
 
-func (m Model) listView(width int) string {
-	var b strings.Builder
-	// Show a trailing window of rows that fits the height (minus status bar).
+// listWindow returns the [start, end) range of display rows currently visible
+// in the list for the terminal height. Rows before start are older and unseen;
+// rows at end or beyond are newer and unseen — which only happens while paused,
+// since follow mode pins the window to the last row. "Rows" here is the active
+// display set (in v0, important lines + context), so the counts always reflect
+// whatever the current view is filtering to.
+func (m Model) listWindow() (start, end int) {
 	visible := m.height - 1
 	if visible < 1 {
 		visible = 1
 	}
-	start := 0
-	if len(m.rows) > visible {
-		start = len(m.rows) - visible
-		if m.selected < start {
-			start = m.selected
-		}
+	if len(m.rows) <= visible {
+		return 0, len(m.rows)
 	}
-	for i := start; i < len(m.rows) && i < start+visible; i++ {
+	start = len(m.rows) - visible
+	if m.selected < start {
+		start = m.selected
+	}
+	end = start + visible
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+	return start, end
+}
+
+func (m Model) listView(width int) string {
+	var b strings.Builder
+	start, end := m.listWindow()
+	for i := start; i < end; i++ {
 		row := m.rows[i]
 		line := truncate(row.Entry.Message, width-2)
 		styled := line
@@ -240,9 +255,21 @@ func (m Model) statusBar() string {
 	if m.follow {
 		mode = "FOLLOW"
 	}
-	return statusStyle.Render(fmt.Sprintf(
-		" clog · %s · %d shown · j/k move · space %s · enter inspect · q quit",
-		mode, len(m.rows), toggleWord(m.follow)))
+	start, end := m.listWindow()
+	base := statusStyle.Render(fmt.Sprintf(" clog · %s · %d shown", mode, len(m.rows)))
+	// Unseen content: ▲ older above the window, ▼ newer below it. Below is only
+	// non-zero while paused (follow keeps the window at the bottom), so a ▼N
+	// flags "you're paused and N newer lines have arrived out of view."
+	var more string
+	if above := start; above > 0 {
+		more += moreStyle.Render(fmt.Sprintf(" ▲%d", above))
+	}
+	if below := len(m.rows) - end; below > 0 {
+		more += moreStyle.Render(fmt.Sprintf(" ▼%d new", below))
+	}
+	tail := statusStyle.Render(fmt.Sprintf(
+		" · j/k move · space %s · enter inspect · q quit", toggleWord(m.follow)))
+	return base + more + tail
 }
 
 func toggleWord(follow bool) string {
