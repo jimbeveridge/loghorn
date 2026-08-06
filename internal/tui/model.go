@@ -32,8 +32,9 @@ type Model struct {
 	selected int
 	follow   bool
 
-	showDetail bool
-	detail     viewport.Model
+	showDetail  bool
+	detail      viewport.Model
+	detailEntry entry.Entry // the entry currently shown in the detail pane
 
 	width, height int
 }
@@ -71,6 +72,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		if m.showDetail {
 			m.detail.Width, m.detail.Height = m.detailDims()
+			m.detail.SetContent(m.wrappedDetail()) // re-wrap to the new pane width
 		}
 		return m, nil
 
@@ -113,8 +115,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		if len(m.rows) > 0 {
+			m.detailEntry = m.rows[m.selected].Entry
 			m.detail.Width, m.detail.Height = m.detailDims()
-			m.detail.SetContent(renderDetail(m.rows[m.selected].Entry))
+			m.detail.SetContent(m.wrappedDetail())
 			m.detail.GotoTop()
 			m.showDetail = true
 		}
@@ -164,6 +167,14 @@ func renderDetail(e entry.Entry) string {
 		return RenderJSON(e.JSON, false)
 	}
 	return string(e.Raw)
+}
+
+// wrappedDetail renders the inspected entry and wraps it to the detail pane
+// width so wide JSON values aren't clipped off the right edge — everything is
+// reachable by scrolling vertically instead.
+func (m Model) wrappedDetail() string {
+	w, _ := m.detailDims()
+	return lipgloss.NewStyle().Width(w).Render(renderDetail(m.detailEntry))
 }
 
 func (m Model) View() string {
@@ -218,8 +229,12 @@ func (m Model) listView(width int) string {
 
 func (m Model) statusBar() string {
 	if m.showDetail {
-		return statusStyle.Render(
-			" clog · detail · j/k scroll · space page · esc close · q quit")
+		pos := "all shown"
+		if !(m.detail.AtTop() && m.detail.AtBottom()) {
+			pos = fmt.Sprintf("%d%%", int(m.detail.ScrollPercent()*100))
+		}
+		return statusStyle.Render(fmt.Sprintf(
+			" clog · detail [%s] · j/k scroll · space page · esc close · q quit", pos))
 	}
 	mode := "PAUSED"
 	if m.follow {

@@ -1,0 +1,5 @@
+# Compiled binary (module name)
+/clog
+
+# Local log samples used for manual testing
+/docs/backend.log
