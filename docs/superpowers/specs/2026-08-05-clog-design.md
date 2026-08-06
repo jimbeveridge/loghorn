@@ -138,6 +138,29 @@ type Adapter interface {
 - **Multi-line raw entries** (Go/Java stack traces) are grouped into a single logical Entry
   where detectable.
 
+### Lenient LogEntry normalization
+
+Real producers do not reliably nest non-standard fields under `jsonPayload`. Our own backend
+(`docs/backend.log`) emits pino-style JSON with `requestId`, `databaseContext`, `latency`,
+`serviceName`, and even `time` sitting at the **root**, alongside canonical fields like
+`severity` and `httpRequest`. We have minimal control over producers, so this is the norm, not
+the exception.
+
+clog therefore **normalizes on parse**:
+
+- Recognize the canonical LogEntry **structural** keys at the root (`severity`, `timestamp`,
+  `httpRequest`, `trace`, `spanId`, `labels`, `resource`, `logName`, `insertId`, `operation`,
+  `sourceLocation`, `textPayload`, `jsonPayload`, `protoPayload`, `receiveTimestamp`).
+- Treat **every other root key** as effective payload — logically merged with an explicit
+  `jsonPayload` if one is present — so a field resolves the same whether the producer nested it
+  or not.
+- **Alias** common variants: `time` → `timestamp` (extendable).
+
+This gives importance rules, the query grid, and correlation a **single field namespace**
+regardless of where a producer placed a field. (In v0 the fixed engine reads `severity`,
+`httpRequest.status`, and `message` — all present at the root in practice — so full
+normalization is a v1 concern, landing with the JSONPath query grid.)
+
 ---
 
 ## 5. The Row Model & Five Surfaces (core idea)
@@ -260,6 +283,24 @@ is an ad-hoc `Filter`; **search-to-rule** persists it.
 - Copy/export the selected entry's JSON from the pane.
 
 ---
+
+## 9.1 Correlated request view (investigation)
+
+The payoff of *live-first, investigation-capable*: surface an error, then read the **whole
+request's story** — including the routine rows normally hidden.
+
+- Every entry carries a **correlation id**, extracted as the first present of a configurable
+  candidate list (default: `trace`, `requestId`, `logging.googleapis.com/trace`, `spanId`),
+  looked up in the normalized field namespace (root or payload).
+- From any highlighted row, **one keystroke** opens a **request-scoped timeline**: all buffered
+  entries sharing that correlation id, in time order, **including the unimportant rows**. Escape
+  returns to the triage list.
+- This is essentially free on the data side: the ring buffer already retains every row (hiding
+  is a view concern, not a storage one), so correlation just re-filters what we already hold.
+
+Example (`docs/backend.log`): highlight the `POST /api/v1/auth/login returned 401` row and pull
+`requestId a673e05f-…` to see the `SELECT users` that preceded it and everything else in that
+request.
 
 ## 10. Alerting & Coalescing
 

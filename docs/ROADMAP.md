@@ -42,6 +42,17 @@ Deferred out of v0: the query grid, interactive search, search-to-rule, a config
 
 - **Multi-line raw grouping** (stack traces) and general **JSONPath field resolution** (needed
   by the query grid), both deferred out of v0.
+- **Lenient LogEntry normalization** — real producers don't reliably nest non-standard fields
+  under `jsonPayload`; our own backend puts `requestId`, `databaseContext`, `latency`, and even
+  `time` at the **root** (see `docs/backend.log`). Normalize on parse: recognize canonical
+  LogEntry structural keys at the root, treat every other root key as effective payload, and
+  alias variants (`time`→`timestamp`). Gives search + correlation one field namespace.
+- **Correlated request view** — from any highlighted row, one keystroke shows the *complete*
+  timeline for that row's correlation id (`requestId`/`trace`), **including the routine rows
+  normally hidden** — "shine a light on the error, then read the whole request's story."
+  Enabled by the ring already retaining every row; needs (a) correlation-id extraction (first
+  present of a configurable candidate list: default `trace`, `requestId`,
+  `logging.googleapis.com/trace`, `spanId`) and (b) a request-scoped timeline view.
 - TOML config file (`~/.config/clog/config.toml`, overridable by `./clog.toml`): default +
   saved filters, context `N`, colors, keybindings, alert cooldowns.
 - **QBE spreadsheet query grid**: one column per predicate — header = field (JSONPath), row 2 =
