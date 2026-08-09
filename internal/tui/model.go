@@ -285,16 +285,18 @@ func (m Model) onShadeLine(y int) bool {
 
 // rowAtPoint maps a screen cell to a display row index, or -1 when the point is
 // not over a selectable row: a "⋯" gap marker, empty space below the list, the
-// status bar, or the detail pane's half of a split screen.
+// status bar, or the columns the detail pane is covering.
+//
+// The list is always laid out at full width, whether or not the pane is open, so
+// hit-testing reads the same layout the renderer drew.
 func (m Model) rowAtPoint(x, y int) int {
-	width := m.width
 	if m.showDetail {
-		width = m.width / 2
-		if x >= width {
-			return -1
+		paneW, _ := m.detailDims()
+		if x >= m.width-paneW-1 {
+			return -1 // under the pane, or in the gap
 		}
 	}
-	lines := m.listLines(width)
+	lines := m.listLines(m.width)
 	if y < 0 || y >= len(lines) {
 		return -1
 	}
@@ -606,19 +608,57 @@ func (m Model) View() string {
 	if m.showHelp {
 		return m.help.View() + "\n" + m.statusBar()
 	}
+	// The list is always laid out at the full terminal width. Opening the detail
+	// pane draws over the right-hand columns rather than re-flowing the list into
+	// a narrower one, so the text you were reading stays exactly where it was.
+	body := m.listView(m.width)
 	if m.showDetail {
-		// The pane takes only what it needs; the list gets the rest, less one
-		// column for the gap between them.
-		w, _ := m.detailDims()
-		listWidth := m.width - w - 1
-		if listWidth < 1 {
-			listWidth = 1
-		}
-		list := m.listView(listWidth)
-		body := lipgloss.JoinHorizontal(lipgloss.Top, list, " ", m.detail.View())
-		return body + "\n" + m.statusBar()
+		body = m.overlayDetail(body)
 	}
-	return m.listView(m.width) + "\n" + m.statusBar()
+	return body + "\n" + m.statusBar()
+}
+
+// overlayDetail composites the detail pane on top of the list. Each list line is
+// clipped where the pane starts — never re-wrapped — so the visible left-hand
+// text is identical to what was on screen before the pane opened.
+func (m Model) overlayDetail(base string) string {
+	paneW, paneH := m.detailDims()
+	leftW := m.width - paneW - 1 // one column of gap, so the seam reads
+	if leftW < 0 {
+		leftW = 0
+	}
+
+	baseLines := strings.Split(base, "\n")
+	paneLines := strings.Split(m.detail.View(), "\n")
+
+	out := make([]string, paneH)
+	for i := range out {
+		var left, right string
+		if i < len(baseLines) {
+			left = baseLines[i]
+		}
+		if i < len(paneLines) {
+			right = paneLines[i]
+		}
+		// clipTo unconditionally, including past the end of the list: rows below
+		// it still need the left column padded out, or the pane's edge goes
+		// ragged where the list runs out.
+		out[i] = clipTo(left, leftW) + " " + right
+	}
+	return strings.Join(out, "\n")
+}
+
+// clipTo cuts a rendered line to w display columns and pads it back out to
+// exactly w, so the pane always starts in the same column. Truncating and
+// padding are separate Render calls because lipgloss wraps for Width before it
+// truncates for MaxWidth — combined, an over-long line would fold instead of
+// being cut.
+func clipTo(line string, w int) string {
+	if w < 1 {
+		return ""
+	}
+	clipped := lipgloss.NewStyle().MaxWidth(w).Render(line)
+	return lipgloss.NewStyle().Width(w).Render(clipped)
 }
 
 // listWindow returns the [start, end) range of display rows currently visible

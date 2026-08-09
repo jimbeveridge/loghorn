@@ -46,6 +46,11 @@ Shipped after v0 in response to real use:
 - **Scrollable detail pane** (`bubbles/viewport`): long LogEntry JSON no longer overflows the
   screen — it scrolls vertically, with an `all` / `NN%` indicator. (This was the final review's
   top v1 item; done early.)
+- **Detail pane overlays the list**: the list is always laid out at the full terminal width, and
+  the pane is composited on top of the right-hand columns. Opening it covers text rather than
+  re-flowing the list into a narrower column and re-truncating every line, so what you were
+  reading stays exactly where it was. Hit-testing reads the same full-width layout the renderer
+  drew, which also fixed clicks landing on the wrong row once the pane stopped being half-width.
 - **Detail pane sized to its content**: the pane is as wide as the entry's longest line rather
   than a fixed half-screen, capped at terminal width − 20 so the list keeps a readable column.
   Measured ANSI-aware on the unwrapped render, recomputed per entry and on resize. Lines wider
