@@ -292,8 +292,8 @@ func (m Model) onShadeLine(y int) bool {
 func (m Model) rowAtPoint(x, y int) int {
 	if m.showDetail {
 		paneW, _ := m.detailDims()
-		if x >= m.width-paneW-1 {
-			return -1 // under the pane, or in the gap
+		if x >= m.width-paneW-detailChrome {
+			return -1 // the divider, the margin, or the pane itself
 		}
 	}
 	lines := m.listLines(m.width)
@@ -532,10 +532,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// detailReserve is how many columns the list keeps when the detail pane is open.
-// The pane is only as wide as its content needs, but never so wide that the list
-// beside it becomes unreadable.
+// detailReserve is how many columns are kept back from the detail pane when it
+// is open. The pane is only as wide as its content needs, but never so wide that
+// what is left — the list plus the pane's own chrome — becomes unreadable.
 const detailReserve = 20
+
+// The pane's left edge: a vertical rule, then one column of margin before the
+// content. Both come out of detailReserve, so the list keeps the rest.
+const (
+	detailDivider = "│"
+	detailChrome  = 2 // the divider column plus the margin column
+)
+
+var dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
 // detailWidth is the width the pane wants: its longest line, so content that
 // fits is shown unwrapped, capped so the list keeps detailReserve columns.
@@ -623,7 +632,7 @@ func (m Model) View() string {
 // text is identical to what was on screen before the pane opened.
 func (m Model) overlayDetail(base string) string {
 	paneW, paneH := m.detailDims()
-	leftW := m.width - paneW - 1 // one column of gap, so the seam reads
+	leftW := m.width - paneW - detailChrome
 	if leftW < 0 {
 		leftW = 0
 	}
@@ -642,8 +651,9 @@ func (m Model) overlayDetail(base string) string {
 		}
 		// clipTo unconditionally, including past the end of the list: rows below
 		// it still need the left column padded out, or the pane's edge goes
-		// ragged where the list runs out.
-		out[i] = clipTo(left, leftW) + " " + right
+		// ragged where the list runs out. The rule runs the pane's full height
+		// for the same reason.
+		out[i] = clipTo(left, leftW) + dividerStyle.Render(detailDivider) + " " + right
 	}
 	return strings.Join(out, "\n")
 }

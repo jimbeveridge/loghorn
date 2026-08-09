@@ -47,7 +47,8 @@ Shipped after v0 in response to real use:
   screen — it scrolls vertically, with an `all` / `NN%` indicator. (This was the final review's
   top v1 item; done early.)
 - **Detail pane overlays the list**: the list is always laid out at the full terminal width, and
-  the pane is composited on top of the right-hand columns. Opening it covers text rather than
+  the pane is composited on top of the right-hand columns, behind a vertical rule and a one-space
+  margin that run its full height. Opening it covers text rather than
   re-flowing the list into a narrower column and re-truncating every line, so what you were
   reading stays exactly where it was. Hit-testing reads the same full-width layout the renderer
   drew, which also fixed clicks landing on the wrong row once the pane stopped being half-width.

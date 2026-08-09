@@ -51,7 +51,7 @@ func TestOpeningDetailDoesNotReflowTheList(t *testing.T) {
 	after := bodyLines(m.View())
 
 	paneW, _ := m.detailDims()
-	leftW := m.width - paneW - 1
+	leftW := m.width - paneW - detailChrome
 	if leftW < 10 {
 		t.Fatalf("precondition: fixture leaves only %d columns of list to compare", leftW)
 	}
@@ -117,7 +117,7 @@ func TestPaneEdgeIsStraight(t *testing.T) {
 	m = m2.(Model)
 
 	paneW, _ := m.detailDims()
-	leftW := m.width - paneW - 1
+	leftW := m.width - paneW - detailChrome
 	rows := bodyLines(m.View())
 	if len(rows) <= len(m.listLines(m.width)) {
 		t.Fatalf("precondition: need rows past the end of the list (%d rows, %d list lines)",
@@ -127,18 +127,55 @@ func TestPaneEdgeIsStraight(t *testing.T) {
 	paneRows := strings.Split(m.detail.View(), "\n")
 	for i, line := range rows {
 		r := []rune(line)
-		if len(r) < leftW+1 {
+		if len(r) < leftW+detailChrome {
 			t.Fatalf("row %d is only %d columns, cannot reach the pane at %d: %q", i, len(r), leftW, line)
 		}
-		if r[leftW] != ' ' {
-			t.Fatalf("row %d: want the gap column at %d, got %q in %q", i, leftW, r[leftW], line)
+		if got := string(r[leftW]); got != detailDivider {
+			t.Fatalf("row %d: want the divider at column %d, got %q in %q", i, leftW, got, line)
 		}
-		// Everything from leftW+1 on is the pane's own line, unshifted.
+		if r[leftW+1] != ' ' {
+			t.Fatalf("row %d: want a margin column after the divider, got %q in %q", i, r[leftW+1], line)
+		}
+		// Everything past the divider and margin is the pane's own line, unshifted.
 		if i < len(paneRows) {
-			if got, want := string(r[leftW+1:]), paneRows[i]; got != want {
+			if got, want := string(r[leftW+detailChrome:]), paneRows[i]; got != want {
 				t.Fatalf("row %d: pane content is shifted\n got: %q\nwant: %q", i, got, want)
 			}
 		}
+	}
+}
+
+// The divider is a continuous rule down the pane's full height, not just beside
+// the rows the list happens to fill, and the pane's stated width is content —
+// the chrome comes out of the reserve, not out of the pane.
+func TestDividerRunsFullHeight(t *testing.T) {
+	const h = 16
+	m := NewModel(nil, 200, 0)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: h})
+	m = m2.(Model)
+	m = feed(m, entry.Entry{Message: "only row", Important: true}) // one list row, many pane rows
+	e := adapter.ParseLine([]byte(bigLogEntry))
+	e.Important = true
+	m = feed(m, e)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	rows := bodyLines(m.View())
+	if len(rows) != h-1 {
+		t.Fatalf("body should fill the terminal less the status bar: %d rows, want %d", len(rows), h-1)
+	}
+	paneW, _ := m.detailDims()
+	leftW := m.width - paneW - detailChrome
+	for i, line := range rows {
+		if got := string([]rune(line)[leftW]); got != detailDivider {
+			t.Fatalf("row %d has no divider at column %d (got %q) — the rule must be continuous",
+				i, leftW, got)
+		}
+	}
+
+	// The chrome is charged to the reserve: the pane still gets its full cap.
+	if paneW > m.width-detailReserve {
+		t.Fatalf("pane %d exceeds the cap %d", paneW, m.width-detailReserve)
 	}
 }
 
@@ -177,19 +214,19 @@ func TestClickGeometryMatchesOverlay(t *testing.T) {
 	m = m2.(Model)
 
 	paneW, _ := m.detailDims()
-	leftW := m.width - paneW - 1
+	leftW := m.width - paneW - detailChrome
 
 	// Just inside the list: selects row 2.
 	m = clickAt(m, leftW-1, 2)
 	if m.selected != 2 {
 		t.Fatalf("click at the right edge of the list should select row 2, got %d", m.selected)
 	}
-	// The gap column and everything right of it belongs to the pane.
+	// The divider, the margin, and everything right of them belong to the pane.
 	for _, x := range []int{leftW, leftW + 1, m.width - 1} {
 		before := m.selected
 		m = clickAt(m, x, 4)
 		if m.selected != before {
-			t.Fatalf("click at x=%d (pane side) moved the selection %d -> %d", x, before, m.selected)
+			t.Fatalf("click at x=%d (divider/margin/pane) moved the selection %d -> %d", x, before, m.selected)
 		}
 	}
 }
