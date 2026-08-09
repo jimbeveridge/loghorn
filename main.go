@@ -73,6 +73,7 @@ func main() {
 	notify := flag.Bool("notify", false, "fire a desktop notification when fresh errors occur")
 	notifyMaxAge := flag.Duration("notify-max-age", time.Second, "skip notifications for errors older than this (by their log timestamp)")
 	notifyReset := flag.Duration("notify-reset", 15*time.Second, "end an error burst after this quiet gap, so the next error notifies again")
+	notifySound := flag.Bool("notify-sound", true, "play the system alert sound with notifications (with --notify)")
 	grace := flag.Duration("shutdown-grace", 5*time.Second, "how long a launched command gets to exit on SIGTERM before SIGKILL")
 	flag.Usage = usage
 	flag.Parse()
@@ -107,7 +108,7 @@ func main() {
 	var notifier alert.Notifier
 	if *notify {
 		coalescer = alert.NewCoalescer(*notifyMaxAge, *notifyReset, nil)
-		notifier = alert.BeeepNotifier{}
+		notifier = alert.BeeepNotifier{Sound: *notifySound}
 	}
 
 	// errCh carries a non-EOF read error from the producer goroutine to main.

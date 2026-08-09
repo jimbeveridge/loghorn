@@ -91,6 +91,11 @@ Shipped after v0 in response to real use:
   errors whose own log timestamp is older than `--notify-max-age` (default 1s), so replaying an
   old file stays quiet. The LogEntry adapter now also reads the pino-style `time` field as a
   timestamp alias (pulled forward from v1 to support the freshness gate).
+- **Notification sound** (`--notify-sound`, on by default): macOS shows `osascript` notifications
+  under Script Editor's alert style, which is "Banners" out of the box — they auto-dismiss after
+  a few seconds, so a silent one is easy to miss entirely. The sound is the only part clog
+  controls; making them persist means setting Script Editor (or terminal-notifier, which beeep
+  prefers when it is on `PATH`) to "Alerts" in System Settings › Notifications.
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —
 bubbletea's transitive deps (`colorprofile`, `x/ansi`, `x/cellbuf`) require it, and `go mod
