@@ -67,7 +67,7 @@ func writeValue(b *strings.Builder, v any, depth int, plain bool) {
 		b.WriteString(indent(depth))
 		b.WriteString("]")
 	case string:
-		b.WriteString(color(strStyle, strconv.Quote(t), plain))
+		b.WriteString(color(strStyle, quoteMultiline(t, depth), plain))
 	case float64:
 		b.WriteString(color(numStyle, strconv.FormatFloat(t, 'g', -1, 64), plain))
 	case bool:
@@ -77,6 +77,31 @@ func writeValue(b *strings.Builder, v any, depth int, plain bool) {
 	default:
 		b.WriteString(color(strStyle, fmt.Sprintf("%q", fmt.Sprint(t)), plain))
 	}
+}
+
+// quoteMultiline renders a JSON string value. Embedded newlines become real
+// line breaks — a stack trace has to read as a stack trace, not as one endless
+// line of \n escapes — with continuation lines indented to the value's depth so
+// they stay inside the surrounding object. Every other control character is
+// still escaped the way strconv.Quote does it.
+func quoteMultiline(s string, depth int) string {
+	if !strings.Contains(s, "\n") {
+		return strconv.Quote(s)
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for i, line := range strings.Split(s, "\n") {
+		if i > 0 {
+			b.WriteString("\n" + indent(depth))
+		}
+		// \r before a \n is part of the line terminator, not content.
+		line = strings.TrimSuffix(line, "\r")
+		// Quote the segment, then drop the quotes it wraps around it.
+		q := strconv.Quote(line)
+		b.WriteString(q[1 : len(q)-1])
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func indent(depth int) string { return strings.Repeat("  ", depth) }

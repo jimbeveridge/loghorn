@@ -72,7 +72,9 @@ func main() {
 	// to read key/resize input from the piped stdin, which delivers neither, so
 	// the TUI never learns the terminal was resized. Fall back to the default
 	// if there is no controlling tty (e.g. a headless environment).
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	// Mouse capture starts on so clicking selects a line; 'm' toggles it off to
+	// hand text selection back to the terminal for copying.
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 	if tty, err := os.Open("/dev/tty"); err == nil {
 		defer tty.Close()
 		opts = append(opts, tea.WithInput(tty))
