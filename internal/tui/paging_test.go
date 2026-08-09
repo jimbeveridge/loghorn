@@ -239,13 +239,9 @@ func TestHelpPages(t *testing.T) {
 	}
 }
 
-// The keys are documented, including how to reach them on a Mac laptop.
-func TestHelpDocumentsPaging(t *testing.T) {
-	m := pagingModel(t)
-	help := m.helpContent()
-	for _, want := range []string{"pgdn / pgup", "ctrl+d / ctrl+u", "fn+"} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("help should document %q:\n%s", want, help)
-		}
+// How to reach pgdn/pgup on a Mac laptop is the part worth writing down.
+func TestHelpMentionsTheFnKey(t *testing.T) {
+	if got := pagingModel(t).helpContent(); !strings.Contains(got, "fn+") {
+		t.Fatalf("help should say pgdn/pgup are fn+arrows on a laptop:\n%s", got)
 	}
 }

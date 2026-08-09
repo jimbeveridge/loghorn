@@ -471,54 +471,59 @@ var (
 	helpNoteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
+// helpKeyWidth is the key column. Wide enough for "ctrl+d / ctrl+u", the longest
+// binding — anything narrower and it collides with its own description.
+const helpKeyWidth = 18
+
 // helpContent is the full key reference. Everything lives here, including the
 // keys the status bar advertises — the bar is a reminder of the common ones, not
 // the documentation.
+//
+// Entries are key-and-phrase, not sentences. A reference is scanned, not read;
+// prose only earns its place where the behaviour would otherwise be a surprise,
+// and then it is indented so it reads as a footnote rather than a binding.
 func (m Model) helpContent() string {
 	var b strings.Builder
-	head := func(s string) { b.WriteString("\n" + helpHeadStyle.Render(s) + "\n") }
+	head := func(s string) { b.WriteString("\n" + helpHeadStyle.Render(" "+s) + "\n") }
 	row := func(k, desc string) {
-		b.WriteString("  " + helpKeyStyle.Render(fmt.Sprintf("%-12s", k)) + desc + "\n")
+		b.WriteString("  " + helpKeyStyle.Render(fmt.Sprintf("%-*s", helpKeyWidth, k)) + desc + "\n")
 	}
-	note := func(s string) { b.WriteString("  " + helpNoteStyle.Render(s) + "\n") }
+	note := func(s string) { b.WriteString("      " + helpNoteStyle.Render(s) + "\n") }
 
 	b.WriteString(helpHeadStyle.Render(" clog — keys") + "\n")
 
-	head(" Moving")
-	row("j / ↓", "down one line; past the newest row grabs the shade (live)")
-	row("k / ↑", "up one line; off the shade holds it (output stops)")
-	row("pgdn / pgup", "a screenful (fn+↓ / fn+↑ on a Mac laptop)")
-	row("ctrl+d / ctrl+u", "half a screenful")
-	row("g / G", "oldest row / grab the shade")
-	row("space", "hold or release the shade")
-	row("click", "select a line — click the status bar to grab the shade")
-	row("wheel", "walk the list, or scroll the detail pane when it is open")
+	head("Moving")
+	row("j / k", "line")
+	row("ctrl+d / ctrl+u", "half page")
+	row("pgdn / pgup", "page · fn+↓ fn+↑ on a Mac laptop")
+	row("g / G", "oldest row / newest")
+	row("space", "hold / release")
+	row("click · wheel", "select a row · scroll")
+	note("the status bar is the shade's handle: on it live, off it held")
+	note("click the bar to go live")
 
-	head(" Filtering")
-	row("a", "all lines / failures only (failures stay highlighted either way)")
-	row("c", "pin to the selected line's request, or release it")
-	note("on a line with no id, pins to everything logged outside a request")
-	note("the two stack: both on shows the failures within that one request")
-	note("id comes from trace, requestId, logging.googleapis.com/trace or spanId")
+	head("Filtering")
+	row("a", "all lines / failures only")
+	row("c", "pin this line's request · again releases")
+	note("a line with no id pins everything outside a request")
+	note("with a: the failures inside that request")
 
-	head(" Inspecting")
-	row("enter", "open the detail pane on the selected row")
-	row("enter / esc", "close it")
-	row("j / k", "scroll the pane · space pages")
-	row("y", "yank the entry to the system clipboard")
+	head("Inspecting")
+	row("enter", "open the pane · enter or esc closes")
+	row("j / k · space", "scroll · page")
+	row("y", "copy the entry to the clipboard")
 
-	head(" Producer")
-	note("when started as: clog -- <command>")
-	row("f", "forward every key to the child until esc (vite's r, nodemon's rs)")
+	head("Producer")
 	if m.child != nil {
-		row("q", "quit clog and stop the child's whole process group")
-		row("Q", "quit clog, leave the child running")
+		row("f", "send keys to the child until esc")
+		row("Q", "quit, leave the child running")
+		note("q also stops the child's process group")
 	} else {
-		note("not available — clog is reading a pipe")
+		note("reading a pipe · start as clog -- <command> for f and Q")
 	}
 
-	head(" Other")
-	row("m", "mouse capture on/off — off restores terminal text selection for copying")
+	head("Other")
+	row("m", "mouse capture · off frees text selection")
 	row("?", "this help")
 	row("q", "quit")
 	return b.String()

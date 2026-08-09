@@ -232,21 +232,19 @@ func TestStatusBarOmitsRareChildKeys(t *testing.T) {
 	}
 }
 
-// The help page documents them instead, and reflects whether there is a child to
-// talk to.
-func TestHelpDocumentsChildKeys(t *testing.T) {
+// The help page reflects whether there is a child to talk to.
+func TestHelpReflectsLaunchMode(t *testing.T) {
 	m, _ := withChild()
-	m = m.openHelp()
-	help := m.helpContent()
-	for _, want := range []string{"f", "forward every key", "Q", "leave the child running", "process group"} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("help should document %q:\n%s", want, help)
-		}
+	if b := helpBindings(t, m.helpContent()); !b["f"] || !b["Q"] {
+		t.Fatalf("launch mode should list f and Q, got %v", b)
 	}
 
 	pipe := NewModel(nil, 100)
 	pipe.width, pipe.height = 100, 12
 	if got := pipe.helpContent(); !strings.Contains(got, "reading a pipe") {
-		t.Fatalf("help should say the child keys don't apply in pipe mode:\n%s", got)
+		t.Fatalf("pipe mode should say the producer keys do not apply:\n%s", got)
+	}
+	if b := helpBindings(t, pipe.helpContent()); b["f"] || b["Q"] {
+		t.Fatalf("pipe mode should not list f or Q, got %v", b)
 	}
 }

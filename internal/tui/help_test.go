@@ -132,14 +132,60 @@ func TestHelpReflowsOnResize(t *testing.T) {
 	}
 }
 
-// The reference must actually document the keys taken off the bar, or moving
-// them there loses them.
-func TestHelpDocumentsTheKeysTakenOffTheBar(t *testing.T) {
-	m := helpModel()
-	help := m.helpContent()
-	for _, want := range []string{"mouse capture", "this help", "oldest row", "grab the shade"} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("help should document %q:\n%s", want, help)
+// helpBindings returns the key column of every binding row, so tests can assert
+// coverage without depending on the wording of the descriptions.
+func helpBindings(t *testing.T, help string) map[string]bool {
+	t.Helper()
+	if strings.Contains(help, "\x1b") {
+		t.Skip("styled output in this environment; cannot parse the key column")
+	}
+	out := map[string]bool{}
+	for _, ln := range strings.Split(help, "\n") {
+		// Bindings are indented two; headings one, notes six.
+		if len(ln) < 3 || ln[0] != ' ' || ln[1] != ' ' || ln[2] == ' ' {
+			continue
+		}
+		if i := strings.Index(ln[2:], "  "); i > 0 {
+			out[strings.TrimSpace(ln[2:2+i])] = true
+		}
+	}
+	return out
+}
+
+// The bar deliberately carries only a handful of keys, so the reference is the
+// only place the rest are written down. Every key clog handles has to appear in
+// it — one missing is one nobody can find.
+func TestHelpCoversEveryBinding(t *testing.T) {
+	m, _ := withChild() // launch mode, so the producer keys are listed too
+	bindings := helpBindings(t, m.helpContent())
+	if len(bindings) < 10 {
+		t.Fatalf("parsed only %d bindings, the format must have changed: %v", len(bindings), bindings)
+	}
+
+	for _, k := range []string{
+		"j", "k", "g", "G", "space", "pgdn", "pgup", "ctrl+d", "ctrl+u",
+		"a", "c", "enter", "y", "f", "Q", "m", "?", "q", "click", "wheel",
+	} {
+		found := false
+		for b := range bindings {
+			if strings.Contains(b, k) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("no help entry mentions %q; bindings are %v", k, bindings)
+		}
+	}
+}
+
+// A reference is scanned, not read: entries stay short enough to take in at a
+// glance rather than growing back into sentences.
+func TestHelpEntriesStayTerse(t *testing.T) {
+	m, _ := withChild()
+	for _, ln := range strings.Split(m.helpContent(), "\n") {
+		if got := len([]rune(ln)); got > 72 {
+			t.Fatalf("help line is %d columns, keep it under 72:\n%s", got, ln)
 		}
 	}
 }

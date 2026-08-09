@@ -313,13 +313,10 @@ func TestPinAppliesToNewLines(t *testing.T) {
 	}
 }
 
-// The help page documents both keys and the fact that they stack.
-func TestHelpDocumentsFilters(t *testing.T) {
-	m := filterModel()
-	help := m.helpContent()
-	for _, want := range []string{"all lines / failures only", "pin to the selected line's request", "stack"} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("help should document %q:\n%s", want, help)
-		}
+// The stacking behaviour is the non-obvious part, so it stays written down even
+// though the keys themselves are covered by TestHelpCoversEveryBinding.
+func TestHelpExplainsThatFiltersStack(t *testing.T) {
+	if got := filterModel().helpContent(); !strings.Contains(got, "with a:") {
+		t.Fatalf("help should say what the two filters do together:\n%s", got)
 	}
 }
