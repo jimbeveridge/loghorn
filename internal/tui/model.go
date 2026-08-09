@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"clog/internal/buffer"
+	"clog/internal/clipboard"
 	"clog/internal/entry"
 )
 
@@ -36,7 +37,6 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	impStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236"))
-	gapStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	moreStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	tsStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
@@ -46,9 +46,8 @@ var (
 const tsLayout = "15:04:05.000"
 
 type Model struct {
-	ch       <-chan entry.Entry
-	ring     *buffer.Ring
-	contextN int
+	ch   <-chan entry.Entry
+	ring *buffer.Ring
 
 	rows []Row
 
@@ -71,9 +70,11 @@ type Model struct {
 	// one request, which is the combination worth having.
 	//
 	// showAll turns the failures filter off — every line is shown, failures still
-	// styled as such. corrID pins the view to one correlation id; empty means
-	// that filter is off.
+	// styled as such. pinned narrows the view to corrID; the empty id is a real
+	// value, meaning "the lines belonging to no request at all", so the pin needs
+	// its own flag rather than using "" as off.
 	showAll bool
+	pinned  bool
 	corrID  string
 
 	// notice is a one-shot message on the status bar, cleared by the next
@@ -105,7 +106,8 @@ type Model struct {
 	mouse        bool
 	lastClickRow int
 	lastClickAt  time.Time
-	now          func() time.Time // injectable clock, for double-click timing
+	now          func() time.Time   // injectable clock, for double-click timing
+	copy         func(string) error // injectable clipboard, so tests never touch the real one
 
 	// child is the producer clog launched, or nil when reading a pipe.
 	child Child
@@ -131,16 +133,16 @@ func ChildExited(code int) tea.Msg { return childExitMsg{Code: code} }
 // a double-click.
 const doubleClickWindow = 500 * time.Millisecond
 
-func NewModel(ch <-chan entry.Entry, capacity, contextN int) Model {
+func NewModel(ch <-chan entry.Entry, capacity int) Model {
 	return Model{
 		ch:           ch,
 		ring:         buffer.New(capacity),
-		contextN:     contextN,
 		detail:       viewport.New(0, 0),
 		help:         viewport.New(0, 0),
 		mouse:        true,
 		lastClickRow: -1,
 		now:          time.Now,
+		copy:         clipboard.Copy,
 	}
 	// selected starts at 0 with no rows, which is already the shade: clog opens
 	// live.
@@ -152,8 +154,8 @@ func (m Model) onShade() bool { return m.selected >= len(m.rows) }
 
 // rebuild recomputes the visible rows from the ring through the active filters.
 // They stack: the correlation filter narrows the stream to one request, and the
-// failures filter then picks the important lines (and their leading context)
-// out of what is left — so both on means "the failures in this request".
+// failures filter then picks the important lines out of what is left — so both
+// on means "the failures in this request".
 //
 // Everything that changes the row set goes through here, so the cursor and the
 // held window can be re-anchored in one place.
@@ -161,7 +163,7 @@ func (m Model) rebuild() Model {
 	live := m.onShade() // ask before the row count changes under us
 
 	entries := m.ring.Snapshot()
-	if m.corrID != "" {
+	if m.pinned {
 		kept := make([]entry.Entry, 0, len(entries))
 		for _, e := range entries {
 			if e.CorrelationID == m.corrID {
@@ -173,7 +175,7 @@ func (m Model) rebuild() Model {
 	if m.showAll {
 		m.rows = BuildAll(entries)
 	} else {
-		m.rows = BuildDisplay(entries, m.contextN)
+		m.rows = BuildFailures(entries)
 	}
 
 	if live {
@@ -282,7 +284,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		row := m.rowAtPoint(msg.X, msg.Y)
 		if row < 0 {
-			return m, nil // a gap marker, empty space, or the detail pane
+			return m, nil // empty space, or the detail pane
 		}
 		double := row == m.lastClickRow && m.now().Sub(m.lastClickAt) < doubleClickWindow
 		m.lastClickRow, m.lastClickAt = row, m.now()
@@ -298,11 +300,10 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // toggleCorrelation pins the view to the selected line's request, or releases it
-// if already pinned. Lines carrying no correlation id cannot anchor anything, so
-// the filter stays off and says why rather than emptying the screen.
+// if already pinned.
 func (m Model) toggleCorrelation() Model {
-	if m.corrID != "" {
-		m.corrID = ""
+	if m.pinned {
+		m.pinned, m.corrID = false, ""
 		return m.rebuild()
 	}
 	row, ok := m.anchorRow()
@@ -310,12 +311,41 @@ func (m Model) toggleCorrelation() Model {
 		m.notice = "nothing to correlate yet"
 		return m
 	}
-	if row.Entry.CorrelationID == "" {
-		m.notice = "this line carries no correlation id"
+	// A line with no id pins to the uncorrelated set — the lines belonging to no
+	// request — which is a useful view in its own right (startup, shutdown, and
+	// anything logged outside a request).
+	m.pinned, m.corrID = true, row.Entry.CorrelationID
+	return m.rebuild()
+}
+
+// yank copies the inspected entry to the system clipboard, uncoloured — what is
+// on screen, in a form that pastes cleanly into a ticket or an editor. It copies
+// the whole entry, not the clipped view: the pane's width is a display choice,
+// not a decision about what you meant to take.
+func (m Model) yank() Model {
+	text := plainDetail(m.detailEntry)
+	if err := m.copy(text); err != nil {
+		m.notice = "clipboard: " + err.Error()
 		return m
 	}
-	m.corrID = row.Entry.CorrelationID
-	return m.rebuild()
+	m.notice = fmt.Sprintf("copied %s", plural(len(strings.Split(text, "\n")), "line"))
+	return m
+}
+
+// plainDetail is renderDetail without the colour, for anywhere the text leaves
+// the terminal.
+func plainDetail(e entry.Entry) string {
+	if e.JSON != nil {
+		return RenderJSON(e.JSON, true)
+	}
+	return string(e.Raw)
+}
+
+func plural(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // quit leaves, taking the producer's process group with it. Nothing to stop in
@@ -367,8 +397,8 @@ func (m Model) onShadeLine(y int) bool {
 }
 
 // rowAtPoint maps a screen cell to a display row index, or -1 when the point is
-// not over a selectable row: a "⋯" gap marker, empty space below the list, the
-// status bar, or the columns the detail pane is covering.
+// not over a selectable row: empty space below the list, the status bar, or the
+// columns the detail pane is covering.
 //
 // The list is always laid out at full width, whether or not the pane is open, so
 // hit-testing reads the same layout the renderer drew.
@@ -425,13 +455,12 @@ func (m Model) grabShade() Model { return m.setSelected(len(m.rows)) }
 func (m Model) scrollToCursor() Model {
 	if m.selected < m.top {
 		m.top = m.selected
-		return m
 	}
-	for m.top < len(m.rows)-1 {
-		if _, end := m.listWindow(); m.selected < end {
-			break
-		}
-		m.top++
+	if last := m.top + m.windowBudget() - 1; m.selected > last {
+		m.top = m.selected - m.windowBudget() + 1
+	}
+	if m.top < 0 {
+		m.top = 0
 	}
 	return m
 }
@@ -466,6 +495,7 @@ func (m Model) helpContent() string {
 	head(" Filtering")
 	row("a", "all lines / failures only (failures stay highlighted either way)")
 	row("c", "pin to the selected line's request, or release it")
+	note("on a line with no id, pins to everything logged outside a request")
 	note("the two stack: both on shows the failures within that one request")
 	note("id comes from trace, requestId, logging.googleapis.com/trace or spanId")
 
@@ -473,6 +503,7 @@ func (m Model) helpContent() string {
 	row("enter", "open the detail pane on the selected row")
 	row("enter / esc", "close it")
 	row("j / k", "scroll the pane · space pages")
+	row("y", "yank the entry to the system clipboard")
 
 	head(" Producer")
 	note("when started as: clog -- <command>")
@@ -594,9 +625,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// it — enter opened it, so closing with the same key saves crossing the
 	// keyboard — and every other key scrolls the viewport (j/k, arrows, pages).
 	if m.showDetail {
-		if s := msg.String(); s == "esc" || s == "enter" {
+		switch msg.String() {
+		case "esc", "enter":
 			m.showDetail = false
 			return m, nil
+		case "y":
+			return m.yank(), nil
 		}
 		var cmd tea.Cmd
 		m.detail, cmd = m.detail.Update(msg)
@@ -778,77 +812,44 @@ func (m Model) listWindow() (start, end int) {
 	if len(m.rows) == 0 {
 		return 0, 0
 	}
-	// One line per row, plus one for each "⋯" gap marker the row draws — the
-	// budget is in terminal lines, not rows. Overshooting it makes Bubble Tea
-	// drop the top of the frame (standard_renderer keeps only the last height
-	// lines), which reads as the list being cleared.
-	budget := m.height - 1 // reserve the status bar line
-	if budget < 1 {
-		budget = 1
-	}
+	// One row per line. Overshooting the budget makes Bubble Tea drop the top of
+	// the frame (standard_renderer keeps only the last height lines), which reads
+	// as the list being cleared.
+	budget := m.windowBudget()
 	if m.onShade() {
 		// Live: the window rides the newest row.
-		return m.growUp(len(m.rows), budget)
+		start = len(m.rows) - budget
+		if start < 0 {
+			start = 0
+		}
+		return start, len(m.rows)
 	}
 	// Held: pinned to the frozen anchor, so arriving rows pile up below the
 	// window instead of scrolling the view out from under you.
-	top := m.top
-	if top > len(m.rows)-1 {
-		top = len(m.rows) - 1
+	start = m.top
+	if start > len(m.rows)-1 {
+		start = len(m.rows) - 1
 	}
-	if top < 0 {
-		top = 0
+	if start < 0 {
+		start = 0
 	}
-	return m.growDown(top, budget)
-}
-
-// growUp fills budget lines backward from end (exclusive), returning the window
-// it settled on. The topmost row draws no gap marker, so it is charged one line.
-func (m Model) growUp(end, budget int) (int, int) {
-	used, start := 0, end
-	for i := end - 1; i >= 0; i-- {
-		cost := m.rowLines(i, false)
-		if used+cost > budget {
-			// It may still fit as the window's first row, where the marker is
-			// suppressed.
-			if used+m.rowLines(i, true) <= budget {
-				start = i
-			}
-			break
-		}
-		used += cost
-		start = i
+	end = start + budget
+	if end > len(m.rows) {
+		end = len(m.rows)
 	}
 	return start, end
 }
 
-// growDown fills budget lines forward from start, returning the window it
-// settled on.
-func (m Model) growDown(start, budget int) (int, int) {
-	used, end := 0, start
-	for i := start; i < len(m.rows); i++ {
-		cost := m.rowLines(i, i == start)
-		if used+cost > budget {
-			break
-		}
-		used += cost
-		end = i + 1
-	}
-	return start, end
-}
-
-// rowLines is how many terminal lines row i occupies: one for the row itself,
-// plus one for its gap marker unless it is the window's first row.
-func (m Model) rowLines(i int, first bool) int {
-	if m.rows[i].GapBefore && !first {
-		return 2
+// windowBudget is how many rows fit above the status bar.
+func (m Model) windowBudget() int {
+	if b := m.height - 1; b > 0 {
+		return b
 	}
 	return 1
 }
 
 // listLine is one rendered line of the list paired with the display row it
-// shows. A "⋯" gap marker gets row -1: it is drawn, but there is nothing there
-// to select.
+// shows.
 type listLine struct {
 	text string
 	row  int
@@ -856,8 +857,7 @@ type listLine struct {
 
 // listLines lays the visible list out exactly as it is drawn. Rendering and
 // mouse hit-testing both read it, so a click can never land on a different row
-// than the one under the cursor — gap markers mean a screen line index is not a
-// row index.
+// than the one under the cursor.
 func (m Model) listLines(width int) []listLine {
 	start, end := m.listWindow()
 	lines := make([]listLine, 0, end-start)
@@ -879,9 +879,6 @@ func (m Model) listLines(width int) []listLine {
 		if i == m.selected {
 			prefix = "▶ "
 			line = selStyle.Render(line)
-		}
-		if row.GapBefore && i != start {
-			lines = append(lines, listLine{text: gapStyle.Render("  ⋯"), row: -1})
 		}
 		lines = append(lines, listLine{text: prefix + line, row: i})
 	}
@@ -924,9 +921,13 @@ func (m Model) statusBar() string {
 		}
 		// The spinner rides along here too, so ingest stays visible while you
 		// are reading an entry.
-		return "  " + statusStyle.Render(fmt.Sprintf(
-			"clog %s · detail %s · j/k scroll · spc page · enter/esc close · ? help",
+		bar := "  " + statusStyle.Render(fmt.Sprintf(
+			"clog %s · detail %s · j/k scroll · y yank · enter/esc close · ? help",
 			m.spinner(), pos))
+		if m.notice != "" {
+			bar += moreStyle.Render(" · " + m.notice)
+		}
+		return bar
 	}
 
 	live := m.onShade()
@@ -961,8 +962,12 @@ func (m Model) statusBar() string {
 	if m.showAll {
 		more += moreStyle.Render(" · ALL")
 	}
-	if m.corrID != "" {
-		more += moreStyle.Render(" · id:" + shortID(m.corrID))
+	if m.pinned {
+		if m.corrID == "" {
+			more += moreStyle.Render(" · uncorrelated")
+		} else {
+			more += moreStyle.Render(" · id:" + shortID(m.corrID))
+		}
 	}
 
 	// Mouse capture is state, not a hint, and only worth saying when it is off —

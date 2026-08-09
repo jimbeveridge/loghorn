@@ -18,7 +18,7 @@ func req(id, msg string, important bool) entry.Entry {
 // A stream of two interleaved requests, each with routine lines and one failure,
 // plus a line belonging to no request at all.
 func filterModel() Model {
-	m := NewModel(nil, 1000, 0) // contextN 0, so context lines don't muddy the counts
+	m := NewModel(nil, 1000)
 	m.width, m.height = 120, 24
 	return feed(m,
 		req("A", "A start", false),
@@ -96,17 +96,6 @@ func TestAllModeKeepsFailuresHighlighted(t *testing.T) {
 	}
 }
 
-// Nothing is hidden in all mode, so no row claims a gap before it.
-func TestAllModeHasNoGapMarkers(t *testing.T) {
-	m := filterModel()
-	m, _ = key(m, "a")
-	for _, r := range m.rows {
-		if r.GapBefore {
-			t.Fatalf("all mode should have no gap markers, %q has one", r.Entry.Message)
-		}
-	}
-}
-
 // 'c' pins to the selected line's request.
 func TestCorrelatePinsToSelectedRequest(t *testing.T) {
 	m := filterModel()
@@ -138,7 +127,7 @@ func TestFiltersStack(t *testing.T) {
 	if !equal(messages(m), want) {
 		t.Fatalf("pinned + all should show request A entire, got %v", messages(m))
 	}
-	if !m.showAll || m.corrID != "A" {
+	if !m.showAll || !m.pinned || m.corrID != "A" {
 		t.Fatalf("both filters should be active (all=%v id=%q)", m.showAll, m.corrID)
 	}
 
@@ -154,47 +143,60 @@ func TestCorrelateTogglesOff(t *testing.T) {
 	m := filterModel()
 	m, _ = key(m, "k")
 	m, _ = key(m, "c")
-	if m.corrID == "" {
+	if !m.pinned {
 		t.Fatalf("precondition: c should pin")
 	}
 	m, _ = key(m, "c")
-	if m.corrID != "" {
-		t.Fatalf("c should release the pin, got %q", m.corrID)
+	if m.pinned {
+		t.Fatalf("c should release the pin, still on %q", m.corrID)
 	}
 	if want := []string{"A boom", "B boom"}; !equal(messages(m), want) {
 		t.Fatalf("releasing should restore both failures, got %v", messages(m))
 	}
 }
 
-// A line with no correlation id cannot anchor the filter. Emptying the screen
-// silently would read as a bug, so it says so instead.
-func TestCorrelateOnLineWithoutIDSaysSo(t *testing.T) {
-	m := NewModel(nil, 1000, 0)
+// A line with no correlation id pins to the uncorrelated set — everything logged
+// outside a request. The empty id is a real target, not an error.
+func TestCorrelateOnLineWithoutIDPinsUncorrelated(t *testing.T) {
+	m := NewModel(nil, 1000)
 	m.width, m.height = 120, 24
-	m = feed(m, req("", "orphan boom", true))
-	m, _ = key(m, "k")
+	m = feed(m,
+		req("A", "in a request", true),
+		req("", "startup failed", true),
+		req("", "shutdown failed", true),
+	)
+	m, _ = key(m, "k") // hold on the newest, which has no id
 
 	m, _ = key(m, "c")
-	if m.corrID != "" {
-		t.Fatalf("must not pin to an empty id")
+	if !m.pinned || m.corrID != "" {
+		t.Fatalf("c should pin to the uncorrelated set (pinned=%v id=%q)", m.pinned, m.corrID)
 	}
-	if !strings.Contains(m.statusBar(), "no correlation id") {
-		t.Fatalf("the bar should explain why nothing happened:\n%s", m.statusBar())
+	if want := []string{"startup failed", "shutdown failed"}; !equal(messages(m), want) {
+		t.Fatalf("should show only lines with no request, got %v", messages(m))
 	}
-	if len(m.rows) != 1 {
-		t.Fatalf("the view should be untouched, got %d rows", len(m.rows))
+	if !strings.Contains(m.statusBar(), "uncorrelated") {
+		t.Fatalf("the bar should name the uncorrelated pin:\n%s", m.statusBar())
+	}
+
+	m, _ = key(m, "c")
+	if m.pinned {
+		t.Fatalf("c should release the uncorrelated pin")
+	}
+	if len(m.rows) != 3 {
+		t.Fatalf("releasing should restore all 3 failures, got %d", len(m.rows))
 	}
 }
 
 // A notice lasts exactly until the next keystroke.
 func TestNoticeClearsOnNextKey(t *testing.T) {
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000) // no rows at all: nothing to correlate
 	m.width, m.height = 120, 24
-	m = feed(m, req("", "orphan boom", true))
-	m, _ = key(m, "k")
 	m, _ = key(m, "c")
 	if m.notice == "" {
 		t.Fatalf("precondition: expected a notice")
+	}
+	if !strings.Contains(m.statusBar(), "nothing to correlate") {
+		t.Fatalf("the bar should carry the notice:\n%s", m.statusBar())
 	}
 	m, _ = key(m, "k")
 	if m.notice != "" {
@@ -230,7 +232,7 @@ func TestStatusBarNamesActiveFilters(t *testing.T) {
 // Long trace ids are trimmed so they cannot swallow the bar.
 func TestLongIDIsShortened(t *testing.T) {
 	long := "a673e05f-9ce8-4762-8aae-2ff182b28efe"
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000)
 	m.width, m.height = 120, 24
 	m = feed(m, req(long, "boom", true))
 	m, _ = key(m, "k")
@@ -275,7 +277,7 @@ func TestFiltersKeepTheCursorValid(t *testing.T) {
 func TestFrameFitsUnderEveryFilter(t *testing.T) {
 	const h = 12
 	for _, keys := range [][]string{{}, {"a"}, {"k", "c"}, {"k", "c", "a"}} {
-		m := NewModel(nil, 1000, 2)
+		m := NewModel(nil, 1000)
 		m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: h})
 		m = m2.(Model)
 		for i := 0; i < 12; i++ {

@@ -27,8 +27,9 @@ JSON* — plus the two things that make it trustworthy on a live tail (alerts, s
   `httpRequest.status >= 500` OR text matches `panic|fatal|exception|traceback`.
   *(No user-defined filters in v0 — this sidesteps the cross-field-OR decision until v1.)*
 - Bounded **ring buffer** (configurable scrollback cap); no producer deadlock.
-- **TUI** (Bubble Tea): follow/pause tail showing **only important lines + `N` leading context
-  lines** (dimmed); vim-ish nav; **Enter** opens an on-demand right pane with **jq-style
+- **TUI** (Bubble Tea): follow/pause tail showing **only important lines** (the `N`-line leading
+  context window shipped in v0 and was later removed — see v0.x); vim-ish nav; **Enter** opens an
+  on-demand right pane with **jq-style
   colorized pretty-printed JSON** (or the raw line); copy selected entry.
 - **Headless `clog --filter`**: same engine, no UI — emit important raw lines to stdout.
 - **Coalesced desktop alerting**: opt-in; notify on important matches with a per-run cooldown
@@ -79,9 +80,20 @@ Shipped after v0 in response to real use:
   wheel to walk the list or scroll the pane. `m` toggles capture, handing text selection back
   to the terminal so a line can be copied. One `listLines` layout backs both rendering and
   hit-testing, so a click cannot land on a row other than the one under the cursor.
+- **Leading context removed** (`--context` gone): a fixed N-line window was a poor answer to
+  "what happened around this?" — always too few lines or too many, and never anything *after* the
+  failure. `a` shows the whole stream instead, which is simpler and unbounded. The `⋯` gap markers
+  went with it: with no context window almost every pair of failures has something hidden between
+  them, so a marker would have appeared before nearly every row and cost half the screen to say
+  what the mode already says. Dropping both collapsed the window arithmetic to one row per line.
+- **Yank** (`y` in the detail pane): copies the inspected entry to the system clipboard, plain and
+  entire — the pane's width is a display choice, not a decision about what you meant to take.
+  Shells out to `pbcopy`/`wl-copy`/`xclip`/`xsel` rather than writing an OSC 52 escape, because
+  that would go out on the same stdout Bubble Tea renders the TUI on.
 - **Stacking view filters**: `a` toggles all-lines / failures-only, `c` pins the view to the
   selected line's correlation id. They compose — both on shows the failures within that one
-  request. Pinning uses `Entry.CorrelationID` (`trace` → `requestId` →
+  request. On a line carrying no id, `c` pins to the *uncorrelated* set — startup, shutdown, and
+  anything else logged outside a request — since the empty id is a real target, not an error. Pinning uses `Entry.CorrelationID` (`trace` → `requestId` →
   `logging.googleapis.com/trace` → `logging.googleapis.com/spanId` → `spanId`) rather than a bare
   `spanId`, because real logs carry whichever of those the producer emits: `docs/backend.log` has
   only `requestId`, and Cloud Run uses the fully-qualified span key. Active filters are named on

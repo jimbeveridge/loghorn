@@ -24,7 +24,7 @@ func key(m Model, s string) (Model, tea.Cmd) {
 }
 
 func helpModel() Model {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = m2.(Model)
 	return imps(m, 6)
@@ -78,7 +78,7 @@ func TestHelpCtrlCStillQuits(t *testing.T) {
 // Scroll keys scroll the reference rather than closing it, so a short terminal
 // can still reach the bottom.
 func TestHelpScrolls(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8}) // too short for the whole page
 	m = m2.(Model)
 	m = imps(m, 3)
@@ -99,7 +99,7 @@ func TestHelpScrolls(t *testing.T) {
 // The overlay obeys the frame-height invariant like every other view.
 func TestHelpFrameFitsTerminal(t *testing.T) {
 	for _, h := range []int{6, 12, 24, 40} {
-		m := NewModel(nil, 100, 0)
+		m := NewModel(nil, 100)
 		m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: h})
 		m = m2.(Model)
 		m = imps(m, 30)

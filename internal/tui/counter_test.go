@@ -13,7 +13,7 @@ import (
 // including routine ones the display filters out — which is the whole point:
 // "shown" can sit still for minutes while lines are streaming in fine.
 func TestStatusBarCountsIngestedLines(t *testing.T) {
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000)
 	m.width, m.height = 100, 20
 
 	if got := m.statusBar(); !strings.Contains(got, "0 lines") {
@@ -39,7 +39,7 @@ func TestStatusBarCountsIngestedLines(t *testing.T) {
 // The counter keeps climbing past the scrollback capacity — it is a tally of
 // what has been read, not of what is still in the ring.
 func TestIngestCounterSurvivesRingEviction(t *testing.T) {
-	m := NewModel(nil, 4, 0) // ring holds 4 entries
+	m := NewModel(nil, 4) // ring holds 4 entries
 	m.width, m.height = 100, 20
 	m = imps(m, 10)
 

@@ -11,7 +11,7 @@ import (
 // Each list line is prefaced with the wall-clock ingest time as HH:MM:SS.mmm,
 // with no date.
 func TestListPrefixesIngestTime(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 80, 10
 	when := time.Date(2026, 8, 6, 15, 4, 5, int(123*time.Millisecond), time.UTC)
 

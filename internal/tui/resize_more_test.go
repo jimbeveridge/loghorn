@@ -22,8 +22,8 @@ func imps(m Model, n int) Model {
 // and rows arrive, the bar reports the backlog. ▲ flags older content scrolled
 // above the window.
 func TestBacklogIndicators(t *testing.T) {
-	m := NewModel(nil, 1000, 0) // contextN 0 → one display row per important entry
-	m.width, m.height = 60, 5   // visible = 4 rows
+	m := NewModel(nil, 1000)  // contextN 0 → one display row per important entry
+	m.width, m.height = 60, 5 // visible = 4 rows
 	m = imps(m, 20)
 
 	if strings.Contains(m.statusBar(), "▼") {
@@ -51,7 +51,7 @@ func TestBacklogIndicators(t *testing.T) {
 // The model must reflow to WindowSizeMsg: a taller terminal shows more list
 // rows, and an open detail pane adopts the new height.
 func TestResizeReflowsListAndDetail(t *testing.T) {
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = m2.(Model)
 	if m.width != 80 || m.height != 10 {

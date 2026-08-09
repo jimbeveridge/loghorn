@@ -14,7 +14,7 @@ import (
 // openOn feeds one entry and opens the detail pane on it.
 func openOn(t *testing.T, w, h int, e entry.Entry) Model {
 	t.Helper()
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	m = m2.(Model)
 	e.Important = true
@@ -134,7 +134,7 @@ func TestDetailWidthFollowsResize(t *testing.T) {
 // Each entry sizes the pane for itself, so a wide entry doesn't leave the pane
 // stretched for the narrow one after it.
 func TestPaneResizesPerEntry(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	m = m2.(Model)
 	m = feed(m,

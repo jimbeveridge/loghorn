@@ -11,7 +11,7 @@ import (
 )
 
 func shadeModel(height int) Model {
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000)
 	m.width, m.height = 100, height
 	return m
 }
@@ -235,7 +235,6 @@ func TestClickingDetailBarDoesNotGrab(t *testing.T) {
 // A held view still has to fit the terminal.
 func TestHeldFrameFitsTerminal(t *testing.T) {
 	m := shadeModel(10)
-	m.contextN = 2
 	for g := 0; g < 15; g++ {
 		m = feed(m,
 			entry.Entry{Message: fmt.Sprintf("routine %d", g)},

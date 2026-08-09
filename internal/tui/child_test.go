@@ -19,7 +19,7 @@ func (c *fakeChild) Name() string        { return "npm" }
 
 func withChild() (Model, *fakeChild) {
 	c := &fakeChild{}
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 100, 12
 	m.SetChild(c)
 	m = imps(m, 4)
@@ -80,7 +80,7 @@ func TestShiftQuitDetaches(t *testing.T) {
 
 // With no child there is nothing to stop, and q is just quit.
 func TestQuitWithoutChildJustQuits(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 80, 12
 	m = imps(m, 3)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
@@ -189,7 +189,7 @@ func TestForwardModeBannerIsLoud(t *testing.T) {
 // Forward mode is meaningless without a child, and must not swallow the keyboard
 // in pipe mode.
 func TestForwardModeUnavailableWithoutChild(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 80, 12
 	m = imps(m, 3)
 
@@ -244,7 +244,7 @@ func TestHelpDocumentsChildKeys(t *testing.T) {
 		}
 	}
 
-	pipe := NewModel(nil, 100, 0)
+	pipe := NewModel(nil, 100)
 	pipe.width, pipe.height = 100, 12
 	if got := pipe.helpContent(); !strings.Contains(got, "reading a pipe") {
 		t.Fatalf("help should say the child keys don't apply in pipe mode:\n%s", got)

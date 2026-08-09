@@ -28,9 +28,9 @@ func wheel(m Model, btn tea.MouseButton) Model {
 
 // A model with a controllable clock, so double-click timing is testable without
 // sleeping.
-func mouseModel(contextN int) (Model, *time.Time) {
+func mouseModel() (Model, *time.Time) {
 	clock := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	m := NewModel(nil, 1000, contextN)
+	m := NewModel(nil, 1000)
 	m.now = func() time.Time { return clock }
 	m.width, m.height = 100, 12
 	return m, &clock
@@ -38,7 +38,7 @@ func mouseModel(contextN int) (Model, *time.Time) {
 
 // Clicking a line selects the row drawn on it.
 func TestClickSelectsRow(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8) // 8 rows, all visible in an 11-line budget
 
 	m = clickAt(m, 10, 2)
@@ -54,7 +54,7 @@ func TestClickSelectsRow(t *testing.T) {
 // Clicking any row lets go of the handle — including the newest one. Only the
 // bar itself grabs it back.
 func TestClickingAnyRowHolds(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8)
 	if !m.onShade() {
 		t.Fatalf("precondition: should start live on the handle")
@@ -73,45 +73,11 @@ func TestClickingAnyRowHolds(t *testing.T) {
 	}
 }
 
-// A "⋯" gap marker is drawn but is not a row: clicking it must do nothing.
-// Its line index also proves screen lines and row indices are not the same.
-func TestClickOnGapMarkerIsNoop(t *testing.T) {
-	m, _ := mouseModel(1)
-	// Two groups of (routine, important) separated by a hidden routine line, so
-	// the second group is preceded by a gap marker.
-	for g := 0; g < 3; g++ {
-		m = feed(m,
-			entry.Entry{Message: fmt.Sprintf("skipped %d", g)},
-			entry.Entry{Message: fmt.Sprintf("context %d", g)},
-			entry.Entry{Message: fmt.Sprintf("boom %d", g), Important: true},
-		)
-	}
-
-	lines := m.listLines(m.width)
-	gapLine := -1
-	for i, l := range lines {
-		if l.row < 0 {
-			gapLine = i
-			break
-		}
-	}
-	if gapLine < 0 {
-		t.Fatalf("precondition: expected a gap marker line, got %d lines", len(lines))
-	}
-
-	m = clickAt(m, 10, 0) // land somewhere known first
-	before := m.selected
-	m = clickAt(m, 10, gapLine)
-	if m.selected != before {
-		t.Fatalf("clicking the gap marker moved the selection %d -> %d", before, m.selected)
-	}
-}
-
 // Clicking the empty space between the last row and the bar, or past the frame
 // entirely, is a no-op. (The bar itself grabs the handle — see
 // TestClickingBarGrabsHandle.)
 func TestClickBelowListIsNoop(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 3)
 	m = clickAt(m, 10, 1)
 	before := m.selected
@@ -127,7 +93,7 @@ func TestClickBelowListIsNoop(t *testing.T) {
 // Two clicks on the same row inside the double-click window open the detail
 // pane; the same two clicks spread further apart do not.
 func TestDoubleClickOpensDetail(t *testing.T) {
-	m, clock := mouseModel(0)
+	m, clock := mouseModel()
 	m = imps(m, 8)
 
 	m = clickAt(m, 10, 2)
@@ -144,7 +110,7 @@ func TestDoubleClickOpensDetail(t *testing.T) {
 	}
 
 	// Slow clicks are two single clicks.
-	m2, _ := mouseModel(0)
+	m2, _ := mouseModel()
 	m2 = imps(m2, 8)
 	m2 = clickAt(m2, 10, 2)
 	*clock = clock.Add(2 * time.Second)
@@ -157,7 +123,7 @@ func TestDoubleClickOpensDetail(t *testing.T) {
 
 // Clicks on two different rows in quick succession are not a double click.
 func TestTwoDifferentRowsIsNotDoubleClick(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8)
 	m = clickAt(m, 10, 2)
 	m = clickAt(m, 10, 3)
@@ -168,7 +134,7 @@ func TestTwoDifferentRowsIsNotDoubleClick(t *testing.T) {
 
 // With the detail pane open, a click on the list re-targets the pane.
 func TestClickRetargetsOpenDetailPane(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
@@ -187,7 +153,7 @@ func TestClickRetargetsOpenDetailPane(t *testing.T) {
 
 // Clicks landing in the detail pane's half of the screen do not move the list.
 func TestClickInDetailPaneIgnored(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
@@ -202,7 +168,7 @@ func TestClickInDetailPaneIgnored(t *testing.T) {
 // The wheel walks the cursor one position at a time, through the handle at the
 // bottom, on the same rules as j/k.
 func TestWheelScrollsList(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 8)
 	handle := len(m.rows)
 
@@ -235,7 +201,7 @@ func TestWheelScrollsList(t *testing.T) {
 
 // With the detail pane open the wheel scrolls the pane, not the list.
 func TestWheelScrollsDetailPane(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	var sb strings.Builder
 	for i := 0; i < 200; i++ {
 		fmt.Fprintf(&sb, "trace line %d\n", i)
@@ -257,7 +223,7 @@ func TestWheelScrollsDetailPane(t *testing.T) {
 // 'm' toggles mouse capture and emits the command that switches terminal
 // tracking, so text selection can be handed back to the terminal for copying.
 func TestMouseToggle(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 3)
 	if !m.mouse {
 		t.Fatalf("mouse capture should start enabled")
@@ -290,7 +256,7 @@ func TestMouseToggle(t *testing.T) {
 // The toggle works while the detail pane is open, where the viewport otherwise
 // owns the keyboard.
 func TestMouseToggleWorksInDetail(t *testing.T) {
-	m, _ := mouseModel(0)
+	m, _ := mouseModel()
 	m = imps(m, 3)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
@@ -307,7 +273,7 @@ func TestMouseToggleWorksInDetail(t *testing.T) {
 
 // Mouse handling must not break the frame-height invariant.
 func TestFrameStillFitsAfterMouseSelection(t *testing.T) {
-	m, _ := mouseModel(2)
+	m, _ := mouseModel()
 	for g := 0; g < 10; g++ {
 		m = feed(m,
 			entry.Entry{Message: fmt.Sprintf("routine %d", g)},

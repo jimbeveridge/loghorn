@@ -47,7 +47,7 @@ terminal, so it competes with clog for keystrokes and outlives it.
 
 Examples:
   clog -- npm run dev
-  clog --context 5 -- go test ./...
+  clog --scrollback 20000 -- go test ./...
   kubectl logs -f pod | clog
 
 Flags:
@@ -68,7 +68,6 @@ func (c childControl) Name() string        { return c.r.Name() }
 
 func main() {
 	filterMode := flag.Bool("filter", false, "headless: print only important lines to stdout")
-	contextN := flag.Int("context", 3, "leading context lines shown before each important line")
 	capacity := flag.Int("scrollback", 5000, "max entries kept in memory")
 	notify := flag.Bool("notify", false, "fire a desktop notification when fresh errors occur")
 	notifyMaxAge := flag.Duration("notify-max-age", time.Second, "skip notifications for errors older than this (by their log timestamp)")
@@ -144,7 +143,7 @@ func main() {
 		defer tty.Close()
 		opts = append(opts, tea.WithInput(tty))
 	}
-	model := tui.NewModel(ch, *capacity, *contextN)
+	model := tui.NewModel(ch, *capacity)
 	if child != nil {
 		model.SetChild(childControl{r: child, grace: *grace})
 	}

@@ -13,7 +13,7 @@ func press(m Model, r rune) Model {
 
 // The cursor starts on the handle, so clog opens live.
 func TestOpensLive(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	if !m.onShade() {
 		t.Fatalf("a fresh model should start on the handle")
@@ -26,7 +26,7 @@ func TestOpensLive(t *testing.T) {
 
 // Down while already on the handle has nowhere to go and must not let go of it.
 func TestDownOnHandleStaysLive(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 
@@ -41,7 +41,7 @@ func TestDownOnHandleStaysLive(t *testing.T) {
 
 // Up off the handle lands on the newest row and pulls the shade down.
 func TestUpOffHandleHolds(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 
@@ -56,7 +56,7 @@ func TestUpOffHandleHolds(t *testing.T) {
 
 // Walking back down to the handle goes live again.
 func TestDownToHandleGoesLive(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 	m = press(m, 'k')
@@ -73,7 +73,7 @@ func TestDownToHandleGoesLive(t *testing.T) {
 
 // Up at the very top is a no-op and stays held.
 func TestUpAtTopIsNoop(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 	for m.selected > 0 {
@@ -87,7 +87,7 @@ func TestUpAtTopIsNoop(t *testing.T) {
 
 // G grabs the handle from anywhere in the scrollback.
 func TestGGrabsHandle(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 	m = press(m, 'k')
@@ -103,7 +103,7 @@ func TestGGrabsHandle(t *testing.T) {
 
 // g jumps to the oldest row and holds.
 func TestGoTopHolds(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 	m = press(m, 'g')
@@ -114,7 +114,7 @@ func TestGoTopHolds(t *testing.T) {
 
 // Space toggles: off the handle to the newest row, and back onto the handle.
 func TestSpaceToggles(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10
 	m = imps(m, 5)
 

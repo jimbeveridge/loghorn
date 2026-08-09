@@ -28,7 +28,7 @@ func leftOf(line string, w int) string { return clipTo(line, w) }
 // the pane covers the right-hand side, it does not push the list into a narrower
 // column and re-truncate it.
 func TestOpeningDetailDoesNotReflowTheList(t *testing.T) {
-	m := NewModel(nil, 200, 2)
+	m := NewModel(nil, 200)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 16})
 	m = m2.(Model)
 	for i := 0; i < 4; i++ {
@@ -71,7 +71,7 @@ func TestOpeningDetailDoesNotReflowTheList(t *testing.T) {
 
 // Closing the pane restores the view exactly.
 func TestClosingDetailRestoresTheList(t *testing.T) {
-	m := NewModel(nil, 200, 0)
+	m := NewModel(nil, 200)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 14})
 	m = m2.(Model)
 	m = imps(m, 8)
@@ -105,7 +105,7 @@ func TestClipToAlwaysReturnsExactWidth(t *testing.T) {
 // The pane starts in the same column on every row — including the rows below the
 // end of the list, which is where a missing pad shows up as a ragged edge.
 func TestPaneEdgeIsStraight(t *testing.T) {
-	m := NewModel(nil, 200, 0)
+	m := NewModel(nil, 200)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 16})
 	m = m2.(Model)
 	// Two short rows against a tall entry, so most rows fall past the list's end.
@@ -150,7 +150,7 @@ func TestPaneEdgeIsStraight(t *testing.T) {
 // the chrome comes out of the reserve, not out of the pane.
 func TestDividerRunsFullHeight(t *testing.T) {
 	const h = 16
-	m := NewModel(nil, 200, 0)
+	m := NewModel(nil, 200)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: h})
 	m = m2.(Model)
 	m = feed(m, entry.Entry{Message: "only row", Important: true}) // one list row, many pane rows
@@ -182,7 +182,7 @@ func TestDividerRunsFullHeight(t *testing.T) {
 // The composite still fits the terminal, both ways.
 func TestOverlayFitsTerminal(t *testing.T) {
 	for _, dim := range []struct{ w, h int }{{80, 10}, {120, 24}, {200, 40}, {60, 8}} {
-		m := NewModel(nil, 200, 1)
+		m := NewModel(nil, 200)
 		m2, _ := m.Update(tea.WindowSizeMsg{Width: dim.w, Height: dim.h})
 		m = m2.(Model)
 		for i := 0; i < 20; i++ {
@@ -205,7 +205,7 @@ func TestOverlayFitsTerminal(t *testing.T) {
 // Hit-testing has to agree with the overlay geometry: a click left of the pane
 // selects the row drawn there, and one under the pane is ignored.
 func TestClickGeometryMatchesOverlay(t *testing.T) {
-	m := NewModel(nil, 200, 0)
+	m := NewModel(nil, 200)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 14})
 	m = m2.(Model)
 	m = imps(m, 8)
@@ -236,7 +236,7 @@ func TestClickGeometryMatchesOverlay(t *testing.T) {
 func TestListLayoutIgnoresThePane(t *testing.T) {
 	long := entry.Entry{Message: strings.Repeat("abcdefghij", 30), Important: true}
 
-	closed := NewModel(nil, 200, 0)
+	closed := NewModel(nil, 200)
 	m2, _ := closed.Update(tea.WindowSizeMsg{Width: 120, Height: 10})
 	closed = m2.(Model)
 	closed = feed(closed, long)

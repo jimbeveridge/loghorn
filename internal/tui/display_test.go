@@ -1,70 +1,72 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	"clog/internal/entry"
 )
 
-func imp(m string) entry.Entry { return entry.Entry{Message: m, Important: true} }
-func rou(m string) entry.Entry { return entry.Entry{Message: m} }
+func lines(n int, important map[int]bool) []entry.Entry {
+	es := make([]entry.Entry, n)
+	for i := range es {
+		es[i] = entry.Entry{Message: fmt.Sprintf("line %d", i), Important: important[i]}
+	}
+	return es
+}
 
-func TestBuildDisplayContextAndHiding(t *testing.T) {
-	entries := []entry.Entry{
-		rou("r1"), rou("r2"), rou("r3"), imp("E1"), rou("r4"), rou("r5"),
+// BuildFailures keeps only what the engine flagged. There is no leading-context
+// window any more: 'a' shows the whole stream when the lines around a failure
+// are what you want.
+func TestBuildFailuresKeepsOnlyImportant(t *testing.T) {
+	rows := BuildFailures(lines(10, map[int]bool{3: true, 7: true}))
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
-	rows := BuildDisplay(entries, 2)
-
-	// Expect r2, r3 (context), E1 (important). r1, r4, r5 hidden.
-	var got []string
-	for _, row := range rows {
-		got = append(got, row.Entry.Message)
-	}
-	want := []string{"r2", "r3", "E1"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("row %d = %q, want %q (full %v)", i, got[i], want[i], got)
+	for _, r := range rows {
+		if r.Kind != RowImportant {
+			t.Fatalf("%q should be important, got kind %v", r.Entry.Message, r.Kind)
 		}
 	}
-	if rows[2].Kind != RowImportant {
-		t.Fatalf("E1 should be RowImportant")
-	}
-	if rows[0].Kind != RowContext {
-		t.Fatalf("r2 should be RowContext")
-	}
-	if !rows[0].GapBefore {
-		t.Fatalf("r2 (first visible at index 1) should have GapBefore=true (r1 hidden)")
+	if rows[0].Entry.Message != "line 3" || rows[1].Entry.Message != "line 7" {
+		t.Fatalf("wrong rows: %q, %q", rows[0].Entry.Message, rows[1].Entry.Message)
 	}
 }
 
-func TestBuildDisplayOverlapNoDuplicate(t *testing.T) {
-	entries := []entry.Entry{rou("r1"), imp("E1"), imp("E2")}
-	rows := BuildDisplay(entries, 2)
-	// r1 context for E1; E1 also context for E2 but already shown as important.
-	var got []string
-	for _, row := range rows {
-		got = append(got, row.Entry.Message)
-	}
-	want := []string{"r1", "E1", "E2"}
-	if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
-		t.Fatalf("got %v, want %v", got, want)
+// No failures, no rows. This is why the bar carries an ingest count: on a
+// healthy run there is genuinely nothing to show.
+func TestBuildFailuresEmptyWhenNothingFails(t *testing.T) {
+	if rows := BuildFailures(lines(50, nil)); len(rows) != 0 {
+		t.Fatalf("expected no rows, got %d", len(rows))
 	}
 }
 
-func TestBuildDisplayGapMarker(t *testing.T) {
-	entries := []entry.Entry{imp("E1"), rou("r1"), rou("r2"), rou("r3"), imp("E2")}
-	rows := BuildDisplay(entries, 1)
-	// E1 (index0), then context r3 (index3), E2 (index4). r3 is not contiguous with E1.
-	if len(rows) != 3 {
-		t.Fatalf("expected 3 rows, got %d (%v)", len(rows), rows)
+// BuildAll keeps everything, and keeps failures distinguishable among it.
+func TestBuildAllKeepsEverythingAndItsStyling(t *testing.T) {
+	es := lines(6, map[int]bool{2: true, 5: true})
+	rows := BuildAll(es)
+	if len(rows) != len(es) {
+		t.Fatalf("expected %d rows, got %d", len(es), len(rows))
 	}
-	if rows[0].GapBefore {
-		t.Fatalf("E1 (first visible at index 0) should have GapBefore=false")
+	for i, r := range rows {
+		want := RowContext
+		if es[i].Important {
+			want = RowImportant
+		}
+		if r.Kind != want {
+			t.Fatalf("row %d kind %v, want %v", i, r.Kind, want)
+		}
+		if r.Entry.Message != es[i].Message {
+			t.Fatalf("row %d is %q, want %q", i, r.Entry.Message, es[i].Message)
+		}
 	}
-	if rows[1].Entry.Message != "r3" || !rows[1].GapBefore {
-		t.Fatalf("r3 should start a new group with GapBefore=true: %+v", rows[1])
+}
+
+func TestBuildersHandleNoEntries(t *testing.T) {
+	if rows := BuildFailures(nil); len(rows) != 0 {
+		t.Fatalf("BuildFailures(nil) returned %d rows", len(rows))
+	}
+	if rows := BuildAll(nil); len(rows) != 0 {
+		t.Fatalf("BuildAll(nil) returned %d rows", len(rows))
 	}
 }

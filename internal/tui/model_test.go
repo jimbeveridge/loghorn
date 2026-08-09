@@ -10,7 +10,7 @@ import (
 )
 
 func TestModelAppendsAndSelects(t *testing.T) {
-	m := NewModel(nil, 100, 2)
+	m := NewModel(nil, 100)
 	m.width, m.height = 80, 24
 
 	// Feed two important entries via entryMsg.
@@ -49,7 +49,7 @@ func TestModelAppendsAndSelects(t *testing.T) {
 }
 
 func TestDetailPaneScrolls(t *testing.T) {
-	m := NewModel(nil, 100, 2)
+	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10 // small viewport so content overflows
 
 	// A raw entry whose content is far taller than the detail pane.

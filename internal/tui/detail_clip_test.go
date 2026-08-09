@@ -23,7 +23,7 @@ func TestDetailClipsRatherThanFolds(t *testing.T) {
 	raw := renderDetail(e)
 	rawLines := strings.Count(raw, "\n") + 1
 
-	m := NewModel(nil, 100, 2)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = m2.(Model)
 	m2, _ = m.Update(entryMsg(e))
@@ -57,7 +57,7 @@ func TestClippingKeepsTheStartOfTheLine(t *testing.T) {
 	e := adapter.ParseLine([]byte(bigLogEntry))
 	e.Important = true
 
-	m := NewModel(nil, 100, 2)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 40}) // forces a narrow cap
 	m = m2.(Model)
 	m2, _ = m.Update(entryMsg(e))

@@ -36,7 +36,7 @@ func feed(m Model, entries ...entry.Entry) Model {
 // carry real newlines (stack traces above all); rendering them verbatim makes a
 // single row span many lines, which blows the frame past the terminal height.
 func TestListRowIsOneLinePerRow(t *testing.T) {
-	m := NewModel(nil, 100, 0)
+	m := NewModel(nil, 100)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	m = m2.(Model)
 	m = feed(m, importantLine(t, stackTraceEntry))
@@ -74,22 +74,6 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 			},
 		},
 		{
-			// Sparse important lines with context: every group starts with a
-			// "⋯" gap marker, which costs a line of its own.
-			name: "gap markers between groups",
-			build: func(m Model) Model {
-				m.contextN = 1
-				for g := 0; g < 20; g++ {
-					m = feed(m,
-						entry.Entry{Message: fmt.Sprintf("routine %d", g)},
-						entry.Entry{Message: fmt.Sprintf("routine %d", g)},
-						importantLine(t, stackTraceEntry),
-					)
-				}
-				return m
-			},
-		},
-		{
 			// Multi-line stack traces.
 			name: "multi-line messages",
 			build: func(m Model) Model {
@@ -103,7 +87,7 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := NewModel(nil, 1000, 0)
+			m := NewModel(nil, 1000)
 			m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: height})
 			m = m2.(Model)
 			m = tc.build(m)
@@ -120,7 +104,7 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 // rows the frame fills every available line.
 func TestFrameFillsTerminalHeight(t *testing.T) {
 	const height = 12
-	m := NewModel(nil, 1000, 0)
+	m := NewModel(nil, 1000)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: height})
 	m = m2.(Model)
 	m = imps(m, 50)
