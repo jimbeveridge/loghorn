@@ -217,24 +217,36 @@ func TestChildExitLeavesForwardMode(t *testing.T) {
 	}
 }
 
-// The bar advertises the launch-mode keys only when there is a child.
-func TestStatusBarHintsDependOnChild(t *testing.T) {
+// The bar stays out of the keyboard-reference business: the child keys live
+// behind '?', which the bar does advertise.
+func TestStatusBarOmitsRareChildKeys(t *testing.T) {
 	m, _ := withChild()
 	bar := m.statusBar()
-	for _, want := range []string{"q quit+stop", "Q detach", "f keys→child"} {
-		if !strings.Contains(bar, want) {
-			t.Fatalf("launch-mode bar should mention %q:\n%s", want, bar)
+	for _, unwanted := range []string{"Q detach", "keys→child", "quit+stop", " f "} {
+		if strings.Contains(bar, unwanted) {
+			t.Fatalf("bar should not carry the rare key %q:\n%s", unwanted, bar)
+		}
+	}
+	if !strings.Contains(bar, "? help") {
+		t.Fatalf("bar must advertise ? or the rare keys become undiscoverable:\n%s", bar)
+	}
+}
+
+// The help page documents them instead, and reflects whether there is a child to
+// talk to.
+func TestHelpDocumentsChildKeys(t *testing.T) {
+	m, _ := withChild()
+	m = m.openHelp()
+	help := m.helpContent()
+	for _, want := range []string{"f", "forward every key", "Q", "leave the child running", "process group"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help should document %q:\n%s", want, help)
 		}
 	}
 
 	pipe := NewModel(nil, 100, 0)
 	pipe.width, pipe.height = 100, 12
-	pipe = imps(pipe, 3)
-	bar = pipe.statusBar()
-	if strings.Contains(bar, "detach") || strings.Contains(bar, "keys→child") {
-		t.Fatalf("pipe-mode bar should not advertise child keys:\n%s", bar)
-	}
-	if !strings.Contains(bar, "q quit") {
-		t.Fatalf("pipe-mode bar should still advertise q:\n%s", bar)
+	if got := pipe.helpContent(); !strings.Contains(got, "reading a pipe") {
+		t.Fatalf("help should say the child keys don't apply in pipe mode:\n%s", got)
 	}
 }

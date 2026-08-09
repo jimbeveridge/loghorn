@@ -77,6 +77,13 @@ type Model struct {
 	detail      viewport.Model
 	detailEntry entry.Entry // the entry currently shown in the detail pane
 
+	// showHelp overlays the key reference. Keys you reach for rarely live here
+	// rather than on the status bar, which has to stay readable at a glance; the
+	// bar advertises '?' so they stay discoverable. It scrolls, so a short
+	// terminal still reaches every line.
+	showHelp bool
+	help     viewport.Model
+
 	// mouse reports whether clog is capturing mouse events. While it is, the
 	// terminal hands clicks to us instead of using them for text selection, so
 	// 'm' turns capture off when you want to select and copy a line.
@@ -115,6 +122,7 @@ func NewModel(ch <-chan entry.Entry, capacity, contextN int) Model {
 		ring:         buffer.New(capacity),
 		contextN:     contextN,
 		detail:       viewport.New(0, 0),
+		help:         viewport.New(0, 0),
 		mouse:        true,
 		lastClickRow: -1,
 		now:          time.Now,
@@ -151,6 +159,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showDetail {
 			m.detail.Width, m.detail.Height = m.detailDims()
 			m.detail.SetContent(m.wrappedDetail()) // re-wrap to the new pane width
+		}
+		if m.showHelp {
+			m = m.openHelp() // re-wrap and re-size, keeping it on screen
 		}
 		return m, nil
 
@@ -220,6 +231,15 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// quit leaves, taking the producer's process group with it. Nothing to stop in
+// pipe mode, or once the child has already exited.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	if m.child != nil && !m.childExited {
+		return m, terminateThenQuit(m.child)
+	}
+	return m, tea.Quit
 }
 
 // terminateThenQuit shuts the producer down before leaving. It runs as a command
@@ -329,6 +349,71 @@ func (m Model) scrollToCursor() Model {
 	return m
 }
 
+var (
+	helpHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	helpKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	helpNoteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+)
+
+// helpContent is the full key reference. Everything lives here, including the
+// keys the status bar advertises — the bar is a reminder of the common ones, not
+// the documentation.
+func (m Model) helpContent() string {
+	var b strings.Builder
+	head := func(s string) { b.WriteString("\n" + helpHeadStyle.Render(s) + "\n") }
+	row := func(k, desc string) {
+		b.WriteString("  " + helpKeyStyle.Render(fmt.Sprintf("%-12s", k)) + desc + "\n")
+	}
+	note := func(s string) { b.WriteString("  " + helpNoteStyle.Render(s) + "\n") }
+
+	b.WriteString(helpHeadStyle.Render(" clog — keys") + "\n")
+
+	head(" Moving")
+	row("j / ↓", "down one line; past the newest row grabs the shade (live)")
+	row("k / ↑", "up one line; off the shade holds it (output stops)")
+	row("g / G", "oldest row / grab the shade")
+	row("space", "hold or release the shade")
+	row("click", "select a line — click the status bar to grab the shade")
+	row("wheel", "walk the list, or scroll the detail pane when it is open")
+
+	head(" Inspecting")
+	row("enter", "open the detail pane on the selected row")
+	row("enter / esc", "close it")
+	row("j / k", "scroll the pane · space pages")
+
+	head(" Producer")
+	note("when started as: clog -- <command>")
+	row("f", "forward every key to the child until esc (vite's r, nodemon's rs)")
+	if m.child != nil {
+		row("q", "quit clog and stop the child's whole process group")
+		row("Q", "quit clog, leave the child running")
+	} else {
+		note("not available — clog is reading a pipe")
+	}
+
+	head(" Other")
+	row("m", "mouse capture on/off — off restores terminal text selection for copying")
+	row("?", "this help")
+	row("q", "quit")
+	return b.String()
+}
+
+// openHelp sizes and fills the help overlay.
+func (m Model) openHelp() Model {
+	m.help.Width, m.help.Height = m.width, m.helpHeight()
+	m.help.SetContent(lipgloss.NewStyle().Width(m.width).Render(m.helpContent()))
+	m.help.GotoTop()
+	m.showHelp = true
+	return m
+}
+
+func (m Model) helpHeight() int {
+	if h := m.height - 1; h > 0 { // reserve the status bar
+		return h
+	}
+	return 1
+}
+
 // openDetail points the detail pane at the selected row and shows it. With the
 // cursor on the handle there is no selected row, so the newest one is inspected.
 func (m Model) openDetail() Model {
@@ -361,15 +446,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Quit and the mouse toggle work from anywhere, including the detail pane.
-	switch msg.String() {
-	case "q", "ctrl+c":
-		// Take the producer down with us. Nothing to do in pipe mode, or once
-		// the child has already exited.
-		if m.child != nil && !m.childExited {
-			return m, terminateThenQuit(m.child)
+	// The help overlay owns the keyboard: scroll keys scroll it, anything that
+	// looks like "done" closes it. ctrl+c still quits, as it does everywhere.
+	if m.showHelp {
+		switch msg.String() {
+		case "ctrl+c":
+			return m.quit()
+		case "?", "esc", "enter", "q", " ":
+			m.showHelp = false
+			return m, nil
 		}
-		return m, tea.Quit
+		var cmd tea.Cmd
+		m.help, cmd = m.help.Update(msg)
+		return m, cmd
+	}
+
+	// Quit, help and the mouse toggle work from anywhere, including the detail
+	// pane.
+	switch msg.String() {
+	case "?":
+		return m.openHelp(), nil
+	case "q", "ctrl+c":
+		return m.quit()
 	case "Q":
 		// Detach: leave the child running, with its output now going nowhere.
 		return m, tea.Quit
@@ -390,10 +488,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.DisableMouse
 	}
 
-	// When the detail pane is open it owns the keyboard: Esc closes it, and
-	// every other key scrolls the viewport (j/k, arrows, page keys).
+	// When the detail pane is open it owns the keyboard: enter and esc both close
+	// it — enter opened it, so closing with the same key saves crossing the
+	// keyboard — and every other key scrolls the viewport (j/k, arrows, pages).
 	if m.showDetail {
-		if msg.String() == "esc" {
+		if s := msg.String(); s == "esc" || s == "enter" {
 			m.showDetail = false
 			return m, nil
 		}
@@ -461,6 +560,9 @@ func (m Model) wrappedDetail() string {
 func (m Model) View() string {
 	if m.width == 0 {
 		return "starting clog…"
+	}
+	if m.showHelp {
+		return m.help.View() + "\n" + m.statusBar()
 	}
 	if m.showDetail {
 		listWidth := m.width / 2
@@ -615,6 +717,11 @@ func (m Model) statusBar() string {
 				m.spinner(), name)))
 	}
 
+	if m.showHelp {
+		return "  " + statusStyle.Render(fmt.Sprintf(
+			"clog %s · help · j/k scroll · esc close", m.spinner()))
+	}
+
 	if m.showDetail {
 		pos := "all"
 		if !(m.detail.AtTop() && m.detail.AtBottom()) {
@@ -622,8 +729,8 @@ func (m Model) statusBar() string {
 		}
 		// The spinner rides along here too, so ingest stays visible while you
 		// are reading an entry.
-		return statusStyle.Render(fmt.Sprintf(
-			"   clog %s · detail %s · j/k scroll · spc page · esc close · q quit",
+		return "  " + statusStyle.Render(fmt.Sprintf(
+			"clog %s · detail %s · j/k scroll · spc page · enter/esc close · ? help",
 			m.spinner(), pos))
 	}
 
@@ -653,18 +760,19 @@ func (m Model) statusBar() string {
 		more += moreStyle.Render(fmt.Sprintf(" · child exited (%d)", m.childCode))
 	}
 
-	// Hints are terse because the bar has to fit a terminal width: where the key
-	// name already carries the meaning, the verb is dropped. State is rendered
-	// before hints, so a narrow window loses hints rather than state.
-	quitHint := "q quit"
-	forwardHint := ""
-	if m.child != nil && !m.childExited {
-		quitHint = "q quit+stop · Q detach" // q takes the producer with it
-		forwardHint = " · f keys→child"
+	// Mouse capture is state, not a hint, and only worth saying when it is off —
+	// that is the surprising case, and the confirmation you want after pressing
+	// 'm' to select text.
+	if !m.mouse {
+		more += moreStyle.Render(" · mouse:off")
 	}
+
+	// Only the keys reached for constantly earn a place here; the rest ('m',
+	// 'f', 'Q', 'g'/'G') live behind '?', which is advertised so they stay
+	// discoverable. State is rendered before hints, so a narrow window loses
+	// hints rather than state.
 	tail := statusStyle.Render(fmt.Sprintf(
-		" · j/k · spc %s · enter open%s · m mouse:%s · %s",
-		toggleWord(live), forwardHint, onOff(m.mouse), quitHint))
+		" · j/k · spc %s · enter open · ? help · q quit", toggleWord(live)))
 
 	// The handle carries the cursor and the selected-row highlight while it
 	// holds it, so "where is the cursor" has one consistent answer.

@@ -262,8 +262,10 @@ func TestMouseToggle(t *testing.T) {
 	if !m.mouse {
 		t.Fatalf("mouse capture should start enabled")
 	}
-	if !strings.Contains(m.statusBar(), "mouse:on") {
-		t.Fatalf("status bar should show mouse:on:\n%s", m.statusBar())
+	// On is the default and says nothing; off is the surprising state and is the
+	// confirmation you want after pressing 'm' to select text.
+	if strings.Contains(m.statusBar(), "mouse") {
+		t.Fatalf("the bar should stay quiet while capture is on:\n%s", m.statusBar())
 	}
 
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
