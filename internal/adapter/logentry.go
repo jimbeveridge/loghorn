@@ -74,7 +74,11 @@ func logEntryMessage(obj map[string]any) string {
 
 // correlationCandidates are checked in order, at the root then inside jsonPayload.
 // Captured in v0; the correlated request view that consumes it is a v1 feature.
-var correlationCandidates = []string{"trace", "requestId", "logging.googleapis.com/trace", "spanId"}
+var correlationCandidates = []string{
+	"trace", "requestId", "logging.googleapis.com/trace",
+	"logging.googleapis.com/spanId", // what Cloud Run actually emits; bare "spanId" is the local convention
+	"spanId",
+}
 
 func correlationID(obj map[string]any) string {
 	for _, k := range correlationCandidates {

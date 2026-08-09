@@ -15,6 +15,20 @@ type Row struct {
 	GapBefore bool
 }
 
+// BuildAll shows every entry, keeping the importance styling so failures still
+// stand out among them. Nothing is hidden, so no row carries a gap marker.
+func BuildAll(entries []entry.Entry) []Row {
+	rows := make([]Row, 0, len(entries))
+	for _, e := range entries {
+		kind := RowContext
+		if e.Important {
+			kind = RowImportant
+		}
+		rows = append(rows, Row{Entry: e, Kind: kind})
+	}
+	return rows
+}
+
 // BuildDisplay hides routine lines, showing each important entry preceded by up
 // to contextN routine lines. Overlapping context windows never duplicate a line,
 // and a row that is not contiguous in the source stream with the previously

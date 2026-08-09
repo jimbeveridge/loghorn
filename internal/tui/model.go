@@ -67,6 +67,20 @@ type Model struct {
 	// down, so the bar can report what is waiting behind it.
 	heldRows, heldLines int
 
+	// The two view filters. They stack: with both on you see the failures within
+	// one request, which is the combination worth having.
+	//
+	// showAll turns the failures filter off — every line is shown, failures still
+	// styled as such. corrID pins the view to one correlation id; empty means
+	// that filter is off.
+	showAll bool
+	corrID  string
+
+	// notice is a one-shot message on the status bar, cleared by the next
+	// keystroke. Used where a key legitimately does nothing and silence would
+	// read as a bug.
+	notice string
+
 	// ingested counts every line read since startup, including routine ones the
 	// display filters out and older ones the ring has since evicted. It is the
 	// status bar's proof that the pipe is alive: "shown" can sit still for
@@ -136,6 +150,59 @@ func NewModel(ch <-chan entry.Entry, capacity, contextN int) Model {
 // pull handle — which is exactly the condition for output being live.
 func (m Model) onShade() bool { return m.selected >= len(m.rows) }
 
+// rebuild recomputes the visible rows from the ring through the active filters.
+// They stack: the correlation filter narrows the stream to one request, and the
+// failures filter then picks the important lines (and their leading context)
+// out of what is left — so both on means "the failures in this request".
+//
+// Everything that changes the row set goes through here, so the cursor and the
+// held window can be re-anchored in one place.
+func (m Model) rebuild() Model {
+	live := m.onShade() // ask before the row count changes under us
+
+	entries := m.ring.Snapshot()
+	if m.corrID != "" {
+		kept := make([]entry.Entry, 0, len(entries))
+		for _, e := range entries {
+			if e.CorrelationID == m.corrID {
+				kept = append(kept, e)
+			}
+		}
+		entries = kept
+	}
+	if m.showAll {
+		m.rows = BuildAll(entries)
+	} else {
+		m.rows = BuildDisplay(entries, m.contextN)
+	}
+
+	if live {
+		m.selected = len(m.rows) // ride the handle as the list grows
+	} else if m.selected > len(m.rows) {
+		m.selected = len(m.rows)
+	}
+	if m.top > len(m.rows)-1 {
+		m.top = 0 // the old anchor means nothing against a different row set
+	}
+	if m.top < 0 {
+		m.top = 0
+	}
+	return m
+}
+
+// anchorRow is the row a keystroke acts on: the selected one, or the newest when
+// the cursor is parked on the shade.
+func (m Model) anchorRow() (Row, bool) {
+	if len(m.rows) == 0 {
+		return Row{}, false
+	}
+	i := m.selected
+	if i >= len(m.rows) {
+		i = len(m.rows) - 1
+	}
+	return m.rows[i], true
+}
+
 func (m Model) Init() tea.Cmd {
 	return waitForEntry(m.ch)
 }
@@ -168,14 +235,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case entryMsg:
-		live := m.onShade() // ask before the row count changes under us
 		m.ingested++
 		m.ring.Append(entry.Entry(msg))
-		m.rows = BuildDisplay(m.ring.Snapshot(), m.contextN)
-		if live {
-			m.selected = len(m.rows) // ride the handle as the list grows
-		}
-		return m, waitForEntry(m.ch)
+		return m.rebuild(), waitForEntry(m.ch)
 
 	case doneMsg:
 		return m, nil
@@ -233,6 +295,27 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// toggleCorrelation pins the view to the selected line's request, or releases it
+// if already pinned. Lines carrying no correlation id cannot anchor anything, so
+// the filter stays off and says why rather than emptying the screen.
+func (m Model) toggleCorrelation() Model {
+	if m.corrID != "" {
+		m.corrID = ""
+		return m.rebuild()
+	}
+	row, ok := m.anchorRow()
+	if !ok {
+		m.notice = "nothing to correlate yet"
+		return m
+	}
+	if row.Entry.CorrelationID == "" {
+		m.notice = "this line carries no correlation id"
+		return m
+	}
+	m.corrID = row.Entry.CorrelationID
+	return m.rebuild()
 }
 
 // quit leaves, taking the producer's process group with it. Nothing to stop in
@@ -380,6 +463,12 @@ func (m Model) helpContent() string {
 	row("click", "select a line — click the status bar to grab the shade")
 	row("wheel", "walk the list, or scroll the detail pane when it is open")
 
+	head(" Filtering")
+	row("a", "all lines / failures only (failures stay highlighted either way)")
+	row("c", "pin to the selected line's request, or release it")
+	note("the two stack: both on shows the failures within that one request")
+	note("id comes from trace, requestId, logging.googleapis.com/trace or spanId")
+
 	head(" Inspecting")
 	row("enter", "open the detail pane on the selected row")
 	row("enter / esc", "close it")
@@ -466,11 +555,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// A notice lasts until the next keystroke, whatever that is.
+	m.notice = ""
+
 	// Quit, help and the mouse toggle work from anywhere, including the detail
 	// pane.
 	switch msg.String() {
 	case "?":
 		return m.openHelp(), nil
+	case "a":
+		m.showAll = !m.showAll
+		return m.rebuild(), nil
+	case "c":
+		return m.toggleCorrelation(), nil
 	case "q", "ctrl+c":
 		return m.quit()
 	case "Q":
@@ -858,11 +955,25 @@ func (m Model) statusBar() string {
 		more += moreStyle.Render(fmt.Sprintf(" · child exited (%d)", m.childCode))
 	}
 
+	// Active filters are named; the default (failures only, unpinned) says
+	// nothing, so the bar stays quiet until something is actually narrowing or
+	// widening what you see.
+	if m.showAll {
+		more += moreStyle.Render(" · ALL")
+	}
+	if m.corrID != "" {
+		more += moreStyle.Render(" · id:" + shortID(m.corrID))
+	}
+
 	// Mouse capture is state, not a hint, and only worth saying when it is off —
 	// that is the surprising case, and the confirmation you want after pressing
 	// 'm' to select text.
 	if !m.mouse {
 		more += moreStyle.Render(" · mouse:off")
+	}
+
+	if m.notice != "" {
+		more += moreStyle.Render(" · " + m.notice)
 	}
 
 	// Only the keys reached for constantly earn a place here; the rest ('m',
@@ -889,6 +1000,16 @@ var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
 func (m Model) spinner() string {
 	return string(spinnerFrames[m.ingested%len(spinnerFrames)])
+}
+
+// shortID trims a correlation id to a recognisable prefix — trace ids are long
+// enough to swallow the bar whole.
+func shortID(s string) string {
+	const n = 8
+	if len([]rune(s)) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
 }
 
 // comma groups thousands, so a six-figure line count stays readable at a glance.

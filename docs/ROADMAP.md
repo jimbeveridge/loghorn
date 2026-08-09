@@ -79,6 +79,14 @@ Shipped after v0 in response to real use:
   wheel to walk the list or scroll the pane. `m` toggles capture, handing text selection back
   to the terminal so a line can be copied. One `listLines` layout backs both rendering and
   hit-testing, so a click cannot land on a row other than the one under the cursor.
+- **Stacking view filters**: `a` toggles all-lines / failures-only, `c` pins the view to the
+  selected line's correlation id. They compose — both on shows the failures within that one
+  request. Pinning uses `Entry.CorrelationID` (`trace` → `requestId` →
+  `logging.googleapis.com/trace` → `logging.googleapis.com/spanId` → `spanId`) rather than a bare
+  `spanId`, because real logs carry whichever of those the producer emits: `docs/backend.log` has
+  only `requestId`, and Cloud Run uses the fully-qualified span key. Active filters are named on
+  the bar; the default says nothing. A line carrying no id cannot anchor the pin, so `c` declines
+  and says why instead of emptying the screen.
 - **Key reference behind `?`**: the status bar keeps only the keys reached for constantly —
   `j/k`, `space`, `enter`, `q` — plus `?`, so the rest stay discoverable. `m`, `f`, `Q`, `g`
   and `G` live in a scrollable help overlay that layers over whatever you were reading. Mouse
