@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"clog/internal/adapter"
-	"clog/internal/entry"
+	"loghorn/internal/adapter"
+	"loghorn/internal/entry"
 )
 
 // bodyLines splits a view into its body rows, dropping the status bar.

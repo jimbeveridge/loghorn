@@ -1,4 +1,4 @@
-# Mouse selection in the clog TUI
+# Mouse selection in the loghorn TUI
 
 Date: 2026-08-07
 
@@ -61,8 +61,8 @@ The bar has to absorb a new hint without growing, so the hints shorten: the key
 name carries the meaning where the verb was redundant.
 
 ```
- clog · FOLLOW · 1234 lines · 8 shown · j/k · spc pause · enter open · m mouse:on · q quit
- clog · detail 45% · j/k scroll · spc page · esc close · q quit
+ loghorn · FOLLOW · 1234 lines · 8 shown · j/k · spc pause · enter open · m mouse:on · q quit
+ loghorn · detail 45% · j/k scroll · spc page · esc close · q quit
 ```
 
 Bubble Tea truncates the line to the terminal width, and state is rendered

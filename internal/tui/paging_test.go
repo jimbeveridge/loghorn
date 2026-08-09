@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // pagingModel: 60 failures in a 21-line terminal, so a page is 20 rows and a

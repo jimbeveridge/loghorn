@@ -45,7 +45,7 @@ func TestHelpOpensAndCloses(t *testing.T) {
 	if !m.showHelp {
 		t.Fatalf("? should open help")
 	}
-	if !strings.Contains(m.View(), "clog — keys") {
+	if !strings.Contains(m.View(), "loghorn — keys") {
 		t.Fatalf("help view should render the reference:\n%s", m.View())
 	}
 	m, _ = key(m, "esc")
@@ -68,7 +68,7 @@ func TestHelpClosesOnAnyDoneKey(t *testing.T) {
 			t.Fatalf("%q should close help", k)
 		}
 		if cmd != nil && cmd() == (tea.QuitMsg{}) {
-			t.Fatalf("%q should close help, not quit clog", k)
+			t.Fatalf("%q should close help, not quit loghorn", k)
 		}
 	}
 }
@@ -153,7 +153,7 @@ func helpBindings(t *testing.T, help string) map[string]bool {
 }
 
 // The bar deliberately carries only a handful of keys, so the reference is the
-// only place the rest are written down. Every key clog handles has to appear in
+// only place the rest are written down. Every key loghorn handles has to appear in
 // it — one missing is one nobody can find.
 func TestHelpCoversEveryBinding(t *testing.T) {
 	m, _ := withChild() // launch mode, so the producer keys are listed too

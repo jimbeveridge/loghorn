@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // req builds an entry belonging to a request, optionally a failure.

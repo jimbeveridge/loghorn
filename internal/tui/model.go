@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"clog/internal/buffer"
-	"clog/internal/clipboard"
-	"clog/internal/entry"
+	"loghorn/internal/buffer"
+	"loghorn/internal/clipboard"
+	"loghorn/internal/entry"
 )
 
 type entryMsg entry.Entry
@@ -21,7 +21,7 @@ type doneMsg struct{}
 // childExitMsg reports that the launched producer exited on its own.
 type childExitMsg struct{ Code int }
 
-// Child is the producer clog launched and owns. It is nil when clog is reading a
+// Child is the producer loghorn launched and owns. It is nil when loghorn is reading a
 // pipe, where there is nothing to forward keys to or shut down.
 type Child interface {
 	// Send writes keystrokes to the child's stdin.
@@ -100,7 +100,7 @@ type Model struct {
 	showHelp bool
 	help     viewport.Model
 
-	// mouse reports whether clog is capturing mouse events. While it is, the
+	// mouse reports whether loghorn is capturing mouse events. While it is, the
 	// terminal hands clicks to us instead of using them for text selection, so
 	// 'm' turns capture off when you want to select and copy a line.
 	mouse        bool
@@ -109,7 +109,7 @@ type Model struct {
 	now          func() time.Time   // injectable clock, for double-click timing
 	copy         func(string) error // injectable clipboard, so tests never touch the real one
 
-	// child is the producer clog launched, or nil when reading a pipe.
+	// child is the producer loghorn launched, or nil when reading a pipe.
 	child Child
 	// forwarding sends every keystroke to the child instead of acting on it, so
 	// a dev server's own shortcuts stay reachable.
@@ -144,7 +144,7 @@ func NewModel(ch <-chan entry.Entry, capacity int) Model {
 		now:          time.Now,
 		copy:         clipboard.Copy,
 	}
-	// selected starts at 0 with no rows, which is already the shade: clog opens
+	// selected starts at 0 with no rows, which is already the shade: loghorn opens
 	// live.
 }
 
@@ -490,7 +490,7 @@ func (m Model) helpContent() string {
 	}
 	note := func(s string) { b.WriteString("      " + helpNoteStyle.Render(s) + "\n") }
 
-	b.WriteString(helpHeadStyle.Render(" clog — keys") + "\n")
+	b.WriteString(helpHeadStyle.Render(" loghorn — keys") + "\n")
 
 	head("Moving")
 	row("j / k", "line")
@@ -519,7 +519,7 @@ func (m Model) helpContent() string {
 		row("Q", "quit, leave the child running")
 		note("q also stops the child's process group")
 	} else {
-		note("reading a pipe · start as clog -- <command> for f and Q")
+		note("reading a pipe · start as loghorn -- <command> for f and Q")
 	}
 
 	head("Other")
@@ -758,7 +758,7 @@ func (m Model) clippedDetail() string {
 
 func (m Model) View() string {
 	if m.width == 0 {
-		return "starting clog…"
+		return "starting loghorn…"
 	}
 	if m.showHelp {
 		return m.help.View() + "\n" + m.statusBar()
@@ -931,13 +931,13 @@ func (m Model) statusBar() string {
 			name = m.child.Name()
 		}
 		return "▶ " + selStyle.Render(moreStyle.Render(
-			fmt.Sprintf("clog %s · FORWARDING — every key goes to %s · esc to stop",
+			fmt.Sprintf("loghorn %s · FORWARDING — every key goes to %s · esc to stop",
 				m.spinner(), name)))
 	}
 
 	if m.showHelp {
 		return "  " + statusStyle.Render(fmt.Sprintf(
-			"clog %s · help · j/k scroll · esc close", m.spinner()))
+			"loghorn %s · help · j/k scroll · esc close", m.spinner()))
 	}
 
 	if m.showDetail {
@@ -948,7 +948,7 @@ func (m Model) statusBar() string {
 		// The spinner rides along here too, so ingest stays visible while you
 		// are reading an entry.
 		bar := "  " + statusStyle.Render(fmt.Sprintf(
-			"clog %s · detail %s · j/k scroll · y yank · enter/esc close · ? help",
+			"loghorn %s · detail %s · j/k scroll · y yank · enter/esc close · ? help",
 			m.spinner(), pos))
 		if m.notice != "" {
 			bar += moreStyle.Render(" · " + m.notice)
@@ -962,7 +962,7 @@ func (m Model) statusBar() string {
 		mode = "LIVE"
 	}
 	base := statusStyle.Render(fmt.Sprintf(
-		"clog %s · %s · %s lines · %d shown", m.spinner(), mode, comma(m.ingested), len(m.rows)))
+		"loghorn %s · %s · %s lines · %d shown", m.spinner(), mode, comma(m.ingested), len(m.rows)))
 
 	var more string
 	if start, _ := m.listWindow(); start > 0 {

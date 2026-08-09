@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // A fresh error fires once; consecutive errors within the burst are suppressed;

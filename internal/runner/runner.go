@@ -1,12 +1,12 @@
-// Package runner launches the log producer as a child process so clog owns its
+// Package runner launches the log producer as a child process so loghorn owns its
 // lifecycle.
 //
-// The alternative — being a pipeline peer, as in `npm run dev | clog` — cannot
+// The alternative — being a pipeline peer, as in `npm run dev | loghorn` — cannot
 // work properly for an interactive producer. Only stdout is piped there; both
 // processes still hold /dev/tty open and both read it, so the kernel splits
 // keystrokes between them at random. The producer ends up executing whatever
-// clog's keys and mouse escape sequences happen to mean to it, and since node
-// ignores SIGPIPE it outlives clog with no way to be signalled.
+// loghorn's keys and mouse escape sequences happen to mean to it, and since node
+// ignores SIGPIPE it outlives loghorn with no way to be signalled.
 package runner
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/creack/pty"
 )
 
-// Runner is a launched producer and the pipes clog talks to it through.
+// Runner is a launched producer and the pipes loghorn talks to it through.
 type Runner struct {
 	cmd    *exec.Cmd
 	ptmx   *os.File      // master side of the child's stdin pty
@@ -41,7 +41,7 @@ type Runner struct {
 // The new process group is what makes shutdown reliable — signalling -pgid
 // reaches everything the producer spawned, not just the producer. Session is
 // deliberately left alone: the child stays out of the terminal's foreground
-// group, so typed input reaches only clog.
+// group, so typed input reaches only loghorn.
 func Start(argv []string) (*Runner, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("no command given")
@@ -60,7 +60,7 @@ func Start(argv []string) (*Runner, error) {
 
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin = pts
-	// One pipe for both streams, so a producer's stderr can't bypass clog and
+	// One pipe for both streams, so a producer's stderr can't bypass loghorn and
 	// paint over the TUI — the same thing `2>&1 |` does.
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -73,7 +73,7 @@ func Start(argv []string) (*Runner, error) {
 		pw.Close()
 		return nil, fmt.Errorf("starting %s: %w", argv[0], err)
 	}
-	// The child holds its own copies now; clog must drop these ends or the
+	// The child holds its own copies now; loghorn must drop these ends or the
 	// output pipe never reports EOF.
 	pts.Close()
 	pw.Close()

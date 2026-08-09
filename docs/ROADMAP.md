@@ -1,7 +1,7 @@
-# clog Roadmap
+# loghorn Roadmap
 
 Living, ordered backlog of delivery slices. The durable design is in
-[docs/superpowers/specs/2026-08-05-clog-design.md](superpowers/specs/2026-08-05-clog-design.md);
+[docs/superpowers/specs/2026-08-05-loghorn-design.md](superpowers/specs/2026-08-05-loghorn-design.md);
 this file is the sequence and can be reordered as priorities shift.
 
 Each slice gets its own dated spec (when its detail firms up) and its own implementation plan
@@ -31,7 +31,7 @@ JSON* — plus the two things that make it trustworthy on a live tail (alerts, s
   context window shipped in v0 and was later removed — see v0.x); vim-ish nav; **Enter** opens an
   on-demand right pane with **jq-style
   colorized pretty-printed JSON** (or the raw line); copy selected entry.
-- **Headless `clog --filter`**: same engine, no UI — emit important raw lines to stdout.
+- **Headless `loghorn --filter`**: same engine, no UI — emit important raw lines to stdout.
 - **Coalesced desktop alerting**: opt-in; notify on important matches with a per-run cooldown
   and rolling summary count (injected-clock-testable coalescer). macOS + Linux.
 - Configuration via **CLI flags only** (e.g. `--context N`, `--filter`, `--notify`). No config
@@ -74,7 +74,7 @@ Shipped after v0 in response to real use:
   passes the display filter — and a braille spinner that advances one frame per ingested line,
   so it moves exactly when data flows and freezes solid when the pipe stops. No ticker, no
   idle repaints.
-- **Per-line ingest time**: each list line is prefaced with the wall-clock time clog received
+- **Per-line ingest time**: each list line is prefaced with the wall-clock time loghorn received
   it, `HH:MM:SS.mmm` (no date).
 - **Mouse support** (on by default): click to select, double-click to open the detail pane,
   wheel to walk the list or scroll the pane. `m` toggles capture, handing text selection back
@@ -115,10 +115,10 @@ Shipped after v0 in response to real use:
   `⋯` gap markers are budgeted as the lines they are, and the trailing newline is gone.
 - **Stack traces read as stack traces**: newlines inside JSON string values print as real line
   breaks in the detail pane instead of literal `\n`.
-- **clog launches the producer** (`clog -- npm run dev`): in a pipeline only stdout is piped, so
+- **loghorn launches the producer** (`loghorn -- npm run dev`): in a pipeline only stdout is piped, so
   both processes still read `/dev/tty` and the kernel splits keystrokes between them — measured
   at 8 of 10 keys going to the producer, which is why `q` often missed and npm ended up acting
-  on stray keys and mouse escapes, then outlived clog (node ignores `SIGPIPE`). Launching fixes
+  on stray keys and mouse escapes, then outlived loghorn (node ignores `SIGPIPE`). Launching fixes
   it at the root: stdout+stderr share one pipe, stdin is a pty (so the child's own shortcuts
   still work, reachable via `f`), and the child runs in its own process group. `q` stops that
   group (SIGTERM, `--shutdown-grace`, then SIGKILL); `Q` detaches and leaves it running. If the
@@ -131,7 +131,7 @@ Shipped after v0 in response to real use:
   timestamp alias (pulled forward from v1 to support the freshness gate).
 - **Notification sound** (`--notify-sound`, on by default): macOS shows `osascript` notifications
   under Script Editor's alert style, which is "Banners" out of the box — they auto-dismiss after
-  a few seconds, so a silent one is easy to miss entirely. The sound is the only part clog
+  a few seconds, so a silent one is easy to miss entirely. The sound is the only part loghorn
   controls; making them persist means setting Script Editor (or terminal-notifier, which beeep
   prefers when it is on `PATH`) to "Alerts" in System Settings › Notifications.
 
@@ -154,7 +154,7 @@ tidy` raises the `go` directive automatically.
   Enabled by the ring already retaining every row; needs (a) correlation-id extraction (first
   present of a configurable candidate list: default `trace`, `requestId`,
   `logging.googleapis.com/trace`, `spanId`) and (b) a request-scoped timeline view.
-- TOML config file (`~/.config/clog/config.toml`, overridable by `./clog.toml`): default +
+- TOML config file (`~/.config/loghorn/config.toml`, overridable by `./loghorn.toml`): default +
   saved filters, context `N`, colors, keybindings, alert cooldowns.
 - **QBE spreadsheet query grid**: one column per predicate — header = field (JSONPath), row 2 =
   comparator, rows 3+ = zero-or-more values. **AND across columns, OR down a column**, zero

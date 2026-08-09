@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/adapter"
-	"clog/internal/entry"
+	"loghorn/internal/adapter"
+	"loghorn/internal/entry"
 )
 
 func frameHeight(s string) int { return strings.Count(s, "\n") + 1 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 func TestLogEntryTimeAlias(t *testing.T) {

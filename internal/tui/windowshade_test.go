@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 func shadeModel(height int) Model {

@@ -52,8 +52,8 @@ invariant still holds.
 ### Counters
 
 ```
- ▶ clog · LIVE ⠹ · 8,431 lines · 12 shown · j/k · spc hold · enter open · m mouse:on · q quit
-   clog · HELD ⠹ · 8,431 lines · 12 shown · ▼12 of 503 waiting · j/k · spc live · …
+ ▶ loghorn · LIVE ⠹ · 8,431 lines · 12 shown · j/k · spc hold · enter open · m mouse:on · q quit
+   loghorn · HELD ⠹ · 8,431 lines · 12 shown · ▼12 of 503 waiting · j/k · spc live · …
 ```
 
 `8,431 lines` is total ingest since startup — always climbing, the proof the pipe

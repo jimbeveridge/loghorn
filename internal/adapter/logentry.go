@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 type LogEntryAdapter struct{}

@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/adapter"
-	"clog/internal/entry"
+	"loghorn/internal/adapter"
+	"loghorn/internal/entry"
 )
 
 // yankModel opens the detail pane on one entry with a captured clipboard.

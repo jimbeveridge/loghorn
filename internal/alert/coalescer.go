@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // Notifier delivers a desktop notification. Implementations live elsewhere so
@@ -62,7 +62,7 @@ func (c *Coalescer) Observe(e entry.Entry) (bool, string, string) {
 	if !fire {
 		return false, "", ""
 	}
-	return true, "clog — error", single(e)
+	return true, "loghorn — error", single(e)
 }
 
 func single(e entry.Entry) string {

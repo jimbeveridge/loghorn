@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"clog/internal/entry"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"loghorn/internal/entry"
 )
 
 func TestModelAppendsAndSelects(t *testing.T) {

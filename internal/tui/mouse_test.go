@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // clickAt presses the left mouse button at a screen cell.

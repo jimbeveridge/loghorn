@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/adapter"
+	"loghorn/internal/adapter"
 )
 
 // A real, large backend.log-style LogEntry line (the 401 API request) with a

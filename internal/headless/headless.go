@@ -1,12 +1,12 @@
-// Package headless runs the clog engine as a stdin->stdout filter (no UI).
+// Package headless runs the loghorn engine as a stdin->stdout filter (no UI).
 package headless
 
 import (
 	"io"
 
-	"clog/internal/adapter"
-	"clog/internal/engine"
-	"clog/internal/ingest"
+	"loghorn/internal/adapter"
+	"loghorn/internal/engine"
+	"loghorn/internal/ingest"
 )
 
 // Run reads lines from r and writes the original bytes of each important line

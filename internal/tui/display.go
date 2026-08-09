@@ -1,6 +1,6 @@
 package tui
 
-import "clog/internal/entry"
+import "loghorn/internal/entry"
 
 type RowKind int
 

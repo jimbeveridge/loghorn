@@ -1,43 +1,43 @@
-# clog launches the producer
+# loghorn launches the producer
 
 Date: 2026-08-08
 
 ## The bug
 
-Quitting clog left `npm run dev` running, in a state that was hard to escape.
+Quitting loghorn left `npm run dev` running, in a state that was hard to escape.
 
-Measured cause: in `npm run dev | clog` only *stdout* is piped. Both processes
-still have `/dev/tty` open and both read it — clog for its keys, the dev server
+Measured cause: in `npm run dev | loghorn` only *stdout* is piped. Both processes
+still have `/dev/tty` open and both read it — loghorn for its keys, the dev server
 for its own shortcuts (vite `r`/`q`, nodemon `rs`). The kernel hands each byte to
 whichever reader gets there first. In a harness sending ten keystrokes, **eight
 were taken by the producer**.
 
 That accounts for the whole report:
 
-- `q` frequently never reaches clog.
+- `q` frequently never reaches loghorn.
 - The dev server has been fed stray `j`/`k`/`q`/`m` keys, and since mouse capture
   landed, whole bursts of mouse escape sequences — executing whatever those mean
   to it. That is the "weird state".
-- It survives clog's exit because node ignores `SIGPIPE`, and clog is a pipeline
+- It survives loghorn's exit because node ignores `SIGPIPE`, and loghorn is a pipeline
   peer rather than a parent, so it has no way to signal it.
 
-clog's own exit is clean: cooked mode, `ISIG`, mouse tracking, alt screen and
+loghorn's own exit is clean: cooked mode, `ISIG`, mouse tracking, alt screen and
 cursor are all restored (verified). The terminal is fine; the dev server is not.
 
-None of this is fixable while clog is a pipeline peer — the tty is genuinely
-shared. It disappears if clog launches the producer itself.
+None of this is fixable while loghorn is a pipeline peer — the tty is genuinely
+shared. It disappears if loghorn launches the producer itself.
 
 ## Design
 
 ### Launch mode
 
 ```sh
-clog -- npm run dev     # clog owns the child
-npm run dev | clog      # unchanged, for files and non-interactive producers
+loghorn -- npm run dev     # loghorn owns the child
+npm run dev | loghorn      # unchanged, for files and non-interactive producers
 ```
 
 Everything after `--` is the command (Go's `flag` package already terminates
-there). With no command, clog reads stdin exactly as before.
+there). With no command, loghorn reads stdin exactly as before.
 
 ### Process wiring
 
@@ -49,15 +49,15 @@ there). With no command, clog reads stdin exactly as before.
   `process.stdin.isTTY`, so key forwarding would silently do nothing against
   exactly the tools it is for.
 - **Own process group** (`Setpgid`), so the child and everything it spawns can be
-  signalled together. No `Setsid`: the child stays in clog's session but out of
-  the foreground group, so terminal input reaches only clog.
+  signalled together. No `Setsid`: the child stays in loghorn's session but out of
+  the foreground group, so terminal input reaches only loghorn.
 
 ### Quit
 
 | Key | Effect |
 |---|---|
 | `q`, `ctrl+c` | `SIGTERM` the child's process group, wait `--shutdown-grace` (default 5s), `SIGKILL` any survivor, then exit |
-| `Q` | exit clog only, leaving the child running detached |
+| `Q` | exit loghorn only, leaving the child running detached |
 
 Termination runs inside a `tea.Cmd` so the grace period does not block the UI.
 
@@ -65,7 +65,7 @@ In pipeline mode there is no child and both keys simply quit.
 
 ### Child exit
 
-If the child exits on its own, clog stays open and the bar reports
+If the child exits on its own, loghorn stays open and the bar reports
 `child exited (1)` — a crash is exactly when you want to scroll back and read the
 output. `q` and `Q` then both just quit.
 
@@ -92,7 +92,7 @@ keystrokes — but it also means a child that reads `/dev/tty` *directly* (rathe
 than stdin) gets `SIGTTIN` and is stopped by the kernel, showing as state `T`.
 Measured: a normal producer reading stdin runs fine (state `S`) and survives a
 detached quit; one opening `/dev/tty` is suspended and then dies of `SIGHUP` when
-its orphaned group is cleaned up on clog's exit.
+its orphaned group is cleaned up on loghorn's exit.
 
 This is inherent to the design, not incidental: a child that can read the
 terminal is a child that can steal your keys. It affects direct-tty readers such

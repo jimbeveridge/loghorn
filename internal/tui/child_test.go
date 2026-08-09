@@ -66,7 +66,7 @@ func TestCtrlCTerminatesChild(t *testing.T) {
 	}
 }
 
-// 'Q' detaches: clog leaves, the producer keeps running.
+// 'Q' detaches: loghorn leaves, the producer keeps running.
 func TestShiftQuitDetaches(t *testing.T) {
 	m, c := withChild()
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Q'}})
@@ -151,7 +151,7 @@ func TestForwardModeSendsKeysToChild(t *testing.T) {
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	m = m2.(Model)
 	if msg := runCmd(cmd); msg == (tea.QuitMsg{}) {
-		t.Fatalf("q must reach the child while forwarding, not quit clog")
+		t.Fatalf("q must reach the child while forwarding, not quit loghorn")
 	}
 	if string(c.sent) != "rs\rq" {
 		t.Fatalf("q should have been forwarded, got %q", string(c.sent))

@@ -1,14 +1,14 @@
-// Command clog captures GCP Cloud Run logs and focuses attention on the
+// Command loghorn captures GCP Cloud Run logs and focuses attention on the
 // important lines.
 //
 // Prefer launching the producer:
 //
-//	clog -- npm run dev
+//	loghorn -- npm run dev
 //
-// clog then owns the process: it captures stdout and stderr together, keeps the
+// loghorn then owns the process: it captures stdout and stderr together, keeps the
 // keyboard to itself, and shuts the whole process group down on quit. Piping
-// (`npm run dev | clog`) still works and is right for files and non-interactive
-// producers, but an interactive one fights clog for /dev/tty — both processes
+// (`npm run dev | loghorn`) still works and is right for files and non-interactive
+// producers, but an interactive one fights loghorn for /dev/tty — both processes
 // read it, so keystrokes get split between them at random.
 //
 // Run with --filter for a headless stdin->stdout filter.
@@ -23,32 +23,32 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"clog/internal/adapter"
-	"clog/internal/alert"
-	"clog/internal/engine"
-	"clog/internal/entry"
-	"clog/internal/headless"
-	"clog/internal/ingest"
-	"clog/internal/runner"
-	"clog/internal/tui"
+	"loghorn/internal/adapter"
+	"loghorn/internal/alert"
+	"loghorn/internal/engine"
+	"loghorn/internal/entry"
+	"loghorn/internal/headless"
+	"loghorn/internal/ingest"
+	"loghorn/internal/runner"
+	"loghorn/internal/tui"
 )
 
 func usage() {
-	fmt.Fprint(flag.CommandLine.Output(), `clog — watch logs, surface the failures.
+	fmt.Fprint(flag.CommandLine.Output(), `loghorn — watch logs, surface the failures.
 
 Usage:
-  clog [flags] -- <command> [args...]   launch the command and capture it (preferred)
-  <command> | clog [flags]              read a pipe
+  loghorn [flags] -- <command> [args...]   launch the command and capture it (preferred)
+  <command> | loghorn [flags]              read a pipe
 
-Launching is preferred for an interactive producer such as a dev server: clog
+Launching is preferred for an interactive producer such as a dev server: loghorn
 captures its stdout and stderr together, keeps the keyboard to itself, and stops
 its whole process group on quit. In a pipeline the producer still holds the
-terminal, so it competes with clog for keystrokes and outlives it.
+terminal, so it competes with loghorn for keystrokes and outlives it.
 
 Examples:
-  clog -- npm run dev
-  clog --scrollback 20000 -- go test ./...
-  kubectl logs -f pod | clog
+  loghorn -- npm run dev
+  loghorn --scrollback 20000 -- go test ./...
+  kubectl logs -f pod | loghorn
 
 Flags:
 `)
@@ -79,13 +79,13 @@ func main() {
 
 	if *filterMode {
 		if err := headless.Run(os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "clog:", err)
+			fmt.Fprintln(os.Stderr, "loghorn:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// With a command after `--`, clog launches it and owns it: stdout and stderr
+	// With a command after `--`, loghorn launches it and owns it: stdout and stderr
 	// arrive together, the child is kept off the terminal so it can't steal
 	// keystrokes, and quitting can shut its whole process group down. Without
 	// one, read the pipe as before.
@@ -94,7 +94,7 @@ func main() {
 	if argv := flag.Args(); len(argv) > 0 {
 		r, err := runner.Start(argv)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "clog:", err)
+			fmt.Fprintln(os.Stderr, "loghorn:", err)
 			os.Exit(1)
 		}
 		child, source = r, r.Output()
@@ -130,7 +130,7 @@ func main() {
 		errCh <- err
 	}()
 
-	// clog consumes stdin for logs, so Bubble Tea can't use it for the UI:
+	// loghorn consumes stdin for logs, so Bubble Tea can't use it for the UI:
 	// keyboard AND resize (SIGWINCH) events must come from the controlling
 	// terminal. Wire /dev/tty as the program input; without it Bubble Tea tries
 	// to read key/resize input from the piped stdin, which delivers neither, so
@@ -158,7 +158,7 @@ func main() {
 	}
 	_, runErr := p.Run()
 	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "clog:", runErr)
+		fmt.Fprintln(os.Stderr, "loghorn:", runErr)
 		os.Exit(1)
 	}
 	// The producer may still be running if the TUI quit before stdin was
@@ -167,7 +167,7 @@ func main() {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "clog: input error:", err)
+			fmt.Fprintln(os.Stderr, "loghorn: input error:", err)
 		}
 	default:
 	}

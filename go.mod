@@ -1,4 +1,4 @@
-module clog
+module loghorn
 
 go 1.24.2
 

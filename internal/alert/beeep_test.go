@@ -36,13 +36,13 @@ func stubBeeep(t *testing.T) *struct {
 func TestNotifierWithSoundUsesAlert(t *testing.T) {
 	rec := stubBeeep(t)
 
-	if err := (BeeepNotifier{Sound: true}).Notify("clog — error", "[ERROR] boom"); err != nil {
+	if err := (BeeepNotifier{Sound: true}).Notify("loghorn — error", "[ERROR] boom"); err != nil {
 		t.Fatal(err)
 	}
 	if rec.alerted != 1 || rec.notified != 0 {
 		t.Fatalf("sound should use Alert (alerted=%d notified=%d)", rec.alerted, rec.notified)
 	}
-	if rec.title != "clog — error" || rec.body != "[ERROR] boom" {
+	if rec.title != "loghorn — error" || rec.body != "[ERROR] boom" {
 		t.Fatalf("title/body should pass through, got %q / %q", rec.title, rec.body)
 	}
 }
@@ -51,7 +51,7 @@ func TestNotifierWithSoundUsesAlert(t *testing.T) {
 func TestNotifierWithoutSoundUsesNotify(t *testing.T) {
 	rec := stubBeeep(t)
 
-	if err := (BeeepNotifier{Sound: false}).Notify("clog — error", "[ERROR] boom"); err != nil {
+	if err := (BeeepNotifier{Sound: false}).Notify("loghorn — error", "[ERROR] boom"); err != nil {
 		t.Fatal(err)
 	}
 	if rec.notified != 1 || rec.alerted != 0 {

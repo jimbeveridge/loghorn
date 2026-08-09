@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 // Each list line is prefaced with the wall-clock ingest time as HH:MM:SS.mmm,

@@ -70,13 +70,13 @@ func TestUnknownPlatformErrors(t *testing.T) {
 func TestMissingToolNamesCandidates(t *testing.T) {
 	orig := tools
 	t.Cleanup(func() { tools = orig })
-	tools = map[string][][]string{"testos": {{"clog-no-such-tool-a"}, {"clog-no-such-tool-b"}}}
+	tools = map[string][][]string{"testos": {{"loghorn-no-such-tool-a"}, {"loghorn-no-such-tool-b"}}}
 
 	_, err := tool("testos")
 	if err == nil {
 		t.Fatalf("expected an error when no helper is installed")
 	}
-	for _, want := range []string{"clog-no-such-tool-a", "clog-no-such-tool-b"} {
+	for _, want := range []string{"loghorn-no-such-tool-a", "loghorn-no-such-tool-b"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error should name %q, got %v", want, err)
 		}

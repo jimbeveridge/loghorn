@@ -11,7 +11,7 @@ func press(m Model, r rune) Model {
 	return m2.(Model)
 }
 
-// The cursor starts on the handle, so clog opens live.
+// The cursor starts on the handle, so loghorn opens live.
 func TestOpensLive(t *testing.T) {
 	m := NewModel(nil, 100)
 	m.width, m.height = 40, 10

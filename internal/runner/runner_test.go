@@ -21,7 +21,7 @@ func waitExit(t *testing.T, r *Runner, d time.Duration) {
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
-// Both streams have to reach clog through the one pipe, so a producer's stderr
+// Both streams have to reach loghorn through the one pipe, so a producer's stderr
 // can't bypass it and paint over the TUI.
 func TestMergesStdoutAndStderr(t *testing.T) {
 	r, err := Start([]string{"sh", "-c", "echo to-stdout; echo to-stderr >&2"})
@@ -73,7 +73,7 @@ func TestSendReachesChild(t *testing.T) {
 	}
 }
 
-// The whole process group goes, not just the process clog spawned: `npm run dev`
+// The whole process group goes, not just the process loghorn spawned: `npm run dev`
 // is a wrapper, and signalling only the wrapper orphans the dev server beneath.
 func TestTerminateKillsTheWholeGroup(t *testing.T) {
 	// A shell that spawns a grandchild and reports both pids.
@@ -143,7 +143,7 @@ func TestTerminateAfterExitIsSafe(t *testing.T) {
 	r.Terminate(time.Second) // must not hang or panic
 }
 
-// Close releases clog's ends without signalling the child — that is what makes a
+// Close releases loghorn's ends without signalling the child — that is what makes a
 // detached quit ('Q') leave it running.
 func TestCloseDoesNotSignalChild(t *testing.T) {
 	r, err := Start([]string{"sh", "-c", "echo ready; sleep 30"})
@@ -187,7 +187,7 @@ func TestOutputEndsAtChildExit(t *testing.T) {
 			t.Fatalf("expected 2 lines before EOF, got %d", n)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatalf("output never reached EOF — a write end is still open in clog")
+		t.Fatalf("output never reached EOF — a write end is still open in loghorn")
 	}
 }
 
@@ -198,9 +198,9 @@ func TestStartRejectsEmptyCommand(t *testing.T) {
 }
 
 func TestStartReportsMissingBinary(t *testing.T) {
-	if _, err := Start([]string{"clog-no-such-binary-xyz"}); err == nil {
+	if _, err := Start([]string{"loghorn-no-such-binary-xyz"}); err == nil {
 		t.Fatalf("expected an error for a missing binary")
-	} else if !strings.Contains(err.Error(), "clog-no-such-binary-xyz") {
+	} else if !strings.Contains(err.Error(), "loghorn-no-such-binary-xyz") {
 		t.Fatalf("error should name the command, got %v", err)
 	}
 }

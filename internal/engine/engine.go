@@ -1,10 +1,10 @@
-// Package engine holds clog's fixed v0 importance classifier.
+// Package engine holds loghorn's fixed v0 importance classifier.
 package engine
 
 import (
 	"regexp"
 
-	"clog/internal/entry"
+	"loghorn/internal/entry"
 )
 
 var failureText = regexp.MustCompile(`(?i)panic|fatal|exception|traceback`)

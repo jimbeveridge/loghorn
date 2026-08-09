@@ -1,4 +1,4 @@
-// Package entry defines the normalized log record every clog stage speaks.
+// Package entry defines the normalized log record every loghorn stage speaks.
 package entry
 
 import (
@@ -72,7 +72,7 @@ type Entry struct {
 	Raw           []byte
 	Format        Format
 	Timestamp     time.Time // the log line's own timestamp (may be zero)
-	Received      time.Time // wall-clock time clog ingested the line
+	Received      time.Time // wall-clock time loghorn ingested the line
 	Severity      Severity
 	HTTPStatus    int
 	Message       string

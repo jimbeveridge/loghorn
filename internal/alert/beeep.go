@@ -18,7 +18,7 @@ type BeeepNotifier struct {
 	// they auto-dismiss after a few seconds, so a silent one is easy to miss
 	// entirely, which defeats the point of alerting on errors.
 	//
-	// The persistent alternative is a system setting clog cannot reach: set
+	// The persistent alternative is a system setting loghorn cannot reach: set
 	// Script Editor (or terminal-notifier, if installed — beeep prefers it) to
 	// "Alerts" in System Settings › Notifications.
 	Sound bool

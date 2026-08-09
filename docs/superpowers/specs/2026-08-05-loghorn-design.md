@@ -1,4 +1,4 @@
-# clog — Capture Log — Design Spec
+# loghorn — Capture Log — Design Spec
 
 **Date:** 2026-08-05
 **Status:** Approved for planning
@@ -8,7 +8,7 @@
 
 ## 1. Overview & Value Proposition
 
-**clog** ("Capture Log") is a keyboard-first terminal UI, written in Go, that turns a
+**loghorn** ("Capture Log") is a keyboard-first terminal UI, written in Go, that turns a
 firehose of GCP Cloud Run logs into a short list of things that actually matter — live,
 in the terminal, without losing the context around each one.
 
@@ -43,8 +43,8 @@ is format-agnostic; LogEntry is the first adapter, not the architecture.
 5. **Keyboard-native, SSH-proof.** Everything reachable by key; nothing *requires* a mouse;
    renders correctly over flaky SSH and a plain `TERM`.
 6. **A good Unix citizen.** The same rules engine that powers the TUI runs headless
-   (`--filter`) so clog composes with grep/jq/pagers/CI.
-7. **Honest and non-destructive.** clog never mutates logs, never phones home, and flags
+   (`--filter`) so loghorn composes with grep/jq/pagers/CI.
+7. **Honest and non-destructive.** loghorn never mutates logs, never phones home, and flags
    malformed input rather than silently dropping it.
 8. **Respect the reader's expertise.** Familiar idioms (grep `-B` context, vim nav, jq coloring,
    query-by-example). No hand-holding.
@@ -98,8 +98,8 @@ Everything below describes the full MVP feature set; the slices above sequence i
 
 ### Deliberately excluded (YAGNI)
 
-- clog invoking `gcloud` itself — it is a clean stdin citizen; you pipe logs in.
-- Any persistent store/database of past logs — clog is a live lens, not a log store
+- loghorn invoking `gcloud` itself — it is a clean stdin citizen; you pipe logs in.
+- Any persistent store/database of past logs — loghorn is a live lens, not a log store
   (that is Cloud Logging's job).
 
 ---
@@ -146,7 +146,7 @@ Real producers do not reliably nest non-standard fields under `jsonPayload`. Our
 `severity` and `httpRequest`. We have minimal control over producers, so this is the norm, not
 the exception.
 
-clog therefore **normalizes on parse**:
+loghorn therefore **normalizes on parse**:
 
 - Recognize the canonical LogEntry **structural** keys at the root (`severity`, `timestamp`,
   `httpRequest`, `trace`, `spanId`, `labels`, `resource`, `logName`, `insertId`, `operation`,
@@ -317,7 +317,7 @@ request.
 
 ## 11. Headless Mode
 
-- `clog --filter <name>` reads stdin, applies the named filter using the **same rule engine**,
+- `loghorn --filter <name>` reads stdin, applies the named filter using the **same rule engine**,
   and writes **matching raw lines** to stdout. No TUI.
 - One definition of "important," two front-ends (interactive + scriptable/CI).
 
@@ -326,7 +326,7 @@ request.
 ## 12. Configuration
 
 - Format: **TOML** (chosen; user had no preference).
-- Location: `~/.config/clog/config.toml`, overridable by a project-local `./clog.toml`.
+- Location: `~/.config/loghorn/config.toml`, overridable by a project-local `./loghorn.toml`.
 - Holds: default + saved filters (name, rows, actions), context `N`, colors, keybindings,
   alert cooldowns.
 - **Search-to-rule** appends a named filter here.
@@ -343,7 +343,7 @@ stdin
   → ring buffer (bounded scrollback)
   → { TUI view (list + on-demand detail)  |  alert coalescer → desktop notifier }
 
-clog --filter <name>:  stdin → split → parse → engine → stdout (matching raw lines)
+loghorn --filter <name>:  stdin → split → parse → engine → stdout (matching raw lines)
 ```
 
 Seams are chosen so each unit is independently testable:
@@ -406,7 +406,7 @@ multi-line-grouping, and arity-enforcement cases are explicit test targets.
 - Filter-flagged desktop notifications with **per-filter coalescing + cooldown**.
 
 **Headless**
-- `clog --filter <name>` emits matching raw lines to stdout using the same engine.
+- `loghorn --filter <name>` emits matching raw lines to stdout using the same engine.
 
 **Non-functional**
 - Bounded memory under sustained high throughput (ring buffer); no producer deadlock.
