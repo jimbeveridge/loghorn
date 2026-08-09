@@ -43,10 +43,16 @@ Deferred out of v0: the query grid, interactive search, search-to-rule, a config
 
 Shipped after v0 in response to real use:
 
-- **Scrollable, wrapping detail pane** (`bubbles/viewport`): long LogEntry JSON no longer
-  overflows the screen or clips wide values off the right edge — content wraps to the pane and
-  scrolls, with an `[all shown]` / `[NN%]` scroll indicator. (This was the final review's top
-  v1 item; done early.)
+- **Scrollable detail pane** (`bubbles/viewport`): long LogEntry JSON no longer overflows the
+  screen — it scrolls vertically, with an `all` / `NN%` indicator. (This was the final review's
+  top v1 item; done early.)
+- **Detail pane sized to its content**: the pane is as wide as the entry's longest line rather
+  than a fixed half-screen, capped at terminal width − 20 so the list keeps a readable column.
+  Measured ANSI-aware on the unwrapped render, recomputed per entry and on resize. Lines wider
+  than the cap are **clipped, not folded**: one log line stays one line, so the structure of the
+  JSON and of a stack trace survives, where folding turned every long value into a ragged block.
+  The trade is that the far end of an over-wide value is off-screen; horizontal scrolling would
+  be the fix if that starts to bite.
 - **Reliable keyboard + resize when piping**: because stdin is the log stream, the TUI reads
   key and resize events from `/dev/tty`; the layout reflows live on terminal resize.
 - **Unseen-content indicator**: the status bar shows `▲N` for older lines above the window, and

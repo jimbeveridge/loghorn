@@ -76,6 +76,7 @@ type Model struct {
 	showDetail  bool
 	detail      viewport.Model
 	detailEntry entry.Entry // the entry currently shown in the detail pane
+	detailW     int         // pane width, sized to the entry; see detailWidth
 
 	// showHelp overlays the key reference. Keys you reach for rarely live here
 	// rather than on the status bar, which has to stay readable at a glance; the
@@ -157,8 +158,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		if m.showDetail {
+			m.detailW = m.detailWidth() // the cap moved with the terminal
 			m.detail.Width, m.detail.Height = m.detailDims()
-			m.detail.SetContent(m.wrappedDetail()) // re-wrap to the new pane width
+			m.detail.SetContent(m.clippedDetail()) // re-clip to the new pane width
 		}
 		if m.showHelp {
 			m = m.openHelp() // re-wrap and re-size, keeping it on screen
@@ -425,8 +427,9 @@ func (m Model) openDetail() Model {
 		i = len(m.rows) - 1
 	}
 	m.detailEntry = m.rows[i].Entry
+	m.detailW = m.detailWidth() // sized to this entry, not the last one
 	m.detail.Width, m.detail.Height = m.detailDims()
-	m.detail.SetContent(m.wrappedDetail())
+	m.detail.SetContent(m.clippedDetail())
 	m.detail.GotoTop()
 	m.showDetail = true
 	return m
@@ -527,11 +530,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// detailDims returns the width and height of the detail pane, matching the
-// split layout used by View (list takes the left half, detail the right).
+// detailReserve is how many columns the list keeps when the detail pane is open.
+// The pane is only as wide as its content needs, but never so wide that the list
+// beside it becomes unreadable.
+const detailReserve = 20
+
+// detailWidth is the width the pane wants: its longest line, so content that
+// fits is shown unwrapped, capped so the list keeps detailReserve columns.
+// Measured on the unwrapped render, and ANSI-aware — the content is coloured.
+func (m Model) detailWidth() int {
+	max := m.width - detailReserve
+	if max < 1 {
+		max = 1 // absurdly narrow terminal; degrade rather than go negative
+	}
+	w := maxLineWidth(renderDetail(m.detailEntry))
+	if w > max {
+		w = max
+	}
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// maxLineWidth is the display width of the widest line, ignoring ANSI styling.
+func maxLineWidth(s string) int {
+	max := 0
+	for _, ln := range strings.Split(s, "\n") {
+		if w := lipgloss.Width(ln); w > max {
+			max = w
+		}
+	}
+	return max
+}
+
+// detailDims returns the width and height of the detail pane, matching the split
+// layout used by View. The width is cached on open and on resize rather than
+// recomputed per frame, since measuring means rendering the entry.
 func (m Model) detailDims() (w, h int) {
-	listWidth := m.width / 2
-	w = m.width - listWidth - 1
+	w = m.detailW
 	if w < 1 {
 		w = 1
 	}
@@ -549,12 +586,17 @@ func renderDetail(e entry.Entry) string {
 	return string(e.Raw)
 }
 
-// wrappedDetail renders the inspected entry and wraps it to the detail pane
-// width so wide JSON values aren't clipped off the right edge — everything is
-// reachable by scrolling vertically instead.
-func (m Model) wrappedDetail() string {
+// clippedDetail renders the inspected entry and clips each line to the pane
+// width rather than folding it. One log line stays one line, so the structure of
+// the JSON — and of a stack trace — survives; folding turned every long value
+// into a ragged block and made the pane hard to read down.
+//
+// Clipping is affordable now that the pane sizes itself to its content
+// (detailWidth): a line is only cut when the entry is wider than the terminal
+// less detailReserve, rather than every time it passed half the screen.
+func (m Model) clippedDetail() string {
 	w, _ := m.detailDims()
-	return lipgloss.NewStyle().Width(w).Render(renderDetail(m.detailEntry))
+	return lipgloss.NewStyle().MaxWidth(w).Render(renderDetail(m.detailEntry))
 }
 
 func (m Model) View() string {
@@ -565,7 +607,13 @@ func (m Model) View() string {
 		return m.help.View() + "\n" + m.statusBar()
 	}
 	if m.showDetail {
-		listWidth := m.width / 2
+		// The pane takes only what it needs; the list gets the rest, less one
+		// column for the gap between them.
+		w, _ := m.detailDims()
+		listWidth := m.width - w - 1
+		if listWidth < 1 {
+			listWidth = 1
+		}
 		list := m.listView(listWidth)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, list, " ", m.detail.View())
 		return body + "\n" + m.statusBar()
