@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,21 @@ import (
 
 type entryMsg entry.Entry
 type doneMsg struct{}
+
+// childExitMsg reports that the launched producer exited on its own.
+type childExitMsg struct{ Code int }
+
+// Child is the producer clog launched and owns. It is nil when clog is reading a
+// pipe, where there is nothing to forward keys to or shut down.
+type Child interface {
+	// Send writes keystrokes to the child's stdin.
+	Send(p []byte) error
+	// Terminate signals the child's process group and waits for it to die,
+	// escalating to SIGKILL after a grace period.
+	Terminate()
+	// Name is the command as invoked, for display.
+	Name() string
+}
 
 var (
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
@@ -34,9 +50,22 @@ type Model struct {
 	ring     *buffer.Ring
 	contextN int
 
-	rows     []Row
+	rows []Row
+
+	// selected is a cursor position in [0, len(rows)]. The extra position past
+	// the last row IS the status bar — the windowshade's pull handle. Resting
+	// there means output is live; anywhere else means the shade is down. There
+	// is no separate follow flag to keep in sync: see onShade.
 	selected int
-	follow   bool
+
+	// top is the first visible row. While live it is recomputed from the tail
+	// each frame so the window rides the newest row; while held it stays put, so
+	// arriving rows pile up below the window instead of scrolling the view.
+	top int
+
+	// heldRows and heldLines snapshot the counters at the moment the shade came
+	// down, so the bar can report what is waiting behind it.
+	heldRows, heldLines int
 
 	// ingested counts every line read since startup, including routine ones the
 	// display filters out and older ones the ring has since evicted. It is the
@@ -56,8 +85,25 @@ type Model struct {
 	lastClickAt  time.Time
 	now          func() time.Time // injectable clock, for double-click timing
 
+	// child is the producer clog launched, or nil when reading a pipe.
+	child Child
+	// forwarding sends every keystroke to the child instead of acting on it, so
+	// a dev server's own shortcuts stay reachable.
+	forwarding bool
+	// childExited records the producer's exit; the TUI stays open so the crash
+	// that killed it is still there to scroll back through.
+	childExited bool
+	childCode   int
+
 	width, height int
 }
+
+// SetChild attaches the launched producer. Without one, quit is just quit and
+// there is nothing to forward keys to.
+func (m *Model) SetChild(c Child) { m.child = c }
+
+// ChildExited reports the producer's exit into the update loop.
+func ChildExited(code int) tea.Msg { return childExitMsg{Code: code} }
 
 // doubleClickWindow is how close two clicks on the same row must be to count as
 // a double-click.
@@ -68,13 +114,18 @@ func NewModel(ch <-chan entry.Entry, capacity, contextN int) Model {
 		ch:           ch,
 		ring:         buffer.New(capacity),
 		contextN:     contextN,
-		follow:       true,
 		detail:       viewport.New(0, 0),
 		mouse:        true,
 		lastClickRow: -1,
 		now:          time.Now,
 	}
+	// selected starts at 0 with no rows, which is already the shade: clog opens
+	// live.
 }
+
+// onShade reports whether the cursor is resting on the status bar — the shade's
+// pull handle — which is exactly the condition for output being live.
+func (m Model) onShade() bool { return m.selected >= len(m.rows) }
 
 func (m Model) Init() tea.Cmd {
 	return waitForEntry(m.ch)
@@ -104,15 +155,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case entryMsg:
+		live := m.onShade() // ask before the row count changes under us
 		m.ingested++
 		m.ring.Append(entry.Entry(msg))
 		m.rows = BuildDisplay(m.ring.Snapshot(), m.contextN)
-		if m.follow && len(m.rows) > 0 {
-			m.selected = len(m.rows) - 1
+		if live {
+			m.selected = len(m.rows) // ride the handle as the list grows
 		}
 		return m, waitForEntry(m.ch)
 
 	case doneMsg:
+		return m, nil
+
+	case childExitMsg:
+		// Stay open: a crash is exactly when the scrollback is worth reading.
+		m.childExited, m.childCode = true, msg.Code
+		m.forwarding = false // nothing left to forward to
 		return m, nil
 
 	case tea.KeyMsg:
@@ -144,14 +202,16 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionPress {
 			return m, nil // ignore the release half of a click
 		}
+		if m.onShadeLine(msg.Y) {
+			return m.grabShade(), nil // pulled the handle
+		}
 		row := m.rowAtPoint(msg.X, msg.Y)
 		if row < 0 {
 			return m, nil // a gap marker, empty space, or the detail pane
 		}
 		double := row == m.lastClickRow && m.now().Sub(m.lastClickAt) < doubleClickWindow
 		m.lastClickRow, m.lastClickAt = row, m.now()
-		m.selected = row
-		m.follow = row == len(m.rows)-1
+		m = m.setSelected(row) // clicking a row pulls the shade down
 		// Double-click opens the pane; a single click while it is already open
 		// re-targets it at the row just clicked.
 		if double || m.showDetail {
@@ -160,6 +220,45 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// terminateThenQuit shuts the producer down before leaving. It runs as a command
+// rather than inline so the grace period doesn't freeze the UI.
+func terminateThenQuit(c Child) tea.Cmd {
+	return func() tea.Msg {
+		c.Terminate()
+		return tea.Quit()
+	}
+}
+
+// keyBytes renders a key event as the bytes a terminal would have delivered, so
+// the child sees what it would have seen had it owned the keyboard.
+func keyBytes(msg tea.KeyMsg) []byte {
+	switch msg.Type {
+	case tea.KeyRunes:
+		return []byte(string(msg.Runes))
+	case tea.KeySpace:
+		return []byte(" ")
+	case tea.KeyEnter:
+		return []byte("\r")
+	case tea.KeyTab:
+		return []byte("\t")
+	case tea.KeyBackspace:
+		return []byte{0x7f}
+	default:
+		// Control keys and escape sequences already stringify to their bytes for
+		// the simple cases; anything exotic is dropped rather than guessed at.
+		if s := msg.String(); len(s) == 1 {
+			return []byte(s)
+		}
+		return nil
+	}
+}
+
+// onShadeLine reports whether a screen row is the shade's pull handle. The
+// detail pane's bar is a different bar and is not grabbable.
+func (m Model) onShadeLine(y int) bool {
+	return !m.showDetail && m.height > 0 && y == m.height-1
 }
 
 // rowAtPoint maps a screen cell to a display row index, or -1 when the point is
@@ -180,31 +279,67 @@ func (m Model) rowAtPoint(x, y int) int {
 	return lines[y].row
 }
 
-// moveSelection moves the cursor by delta rows, clamped to the ends, and
-// re-derives follow: following iff parked on the newest row. Keys, the wheel and
-// clicks all route through here so there is one scroll model rather than a
-// separate mouse one.
-func (m Model) moveSelection(delta int) Model {
-	if len(m.rows) == 0 {
-		return m
+// setSelected moves the cursor to a position in [0, len(rows)], where len(rows)
+// is the shade's pull handle. Keys, the wheel and clicks all route through here,
+// so there is one place that knows how grabbing and releasing the shade works.
+//
+// Leaving the handle pulls the shade down: the window is pinned where it stands
+// so the view stops moving, and the counters are snapshotted so the bar can
+// report what is piling up behind it.
+func (m Model) setSelected(i int) Model {
+	if i < 0 {
+		i = 0
 	}
-	m.selected += delta
-	if m.selected < 0 {
-		m.selected = 0
+	if i > len(m.rows) {
+		i = len(m.rows)
 	}
-	if last := len(m.rows) - 1; m.selected > last {
-		m.selected = last
+	if m.onShade() && i < len(m.rows) {
+		// Read the window while still live — it is tail-anchored — and freeze it
+		// there.
+		m.top, _ = m.listWindow()
+		m.heldRows, m.heldLines = len(m.rows), m.ingested
 	}
-	m.follow = m.selected == len(m.rows)-1
+	m.selected = i
+	if !m.onShade() {
+		m = m.scrollToCursor()
+	}
 	return m
 }
 
-// openDetail points the detail pane at the selected row and shows it.
+// moveSelection walks the cursor by delta positions.
+func (m Model) moveSelection(delta int) Model { return m.setSelected(m.selected + delta) }
+
+// grabShade puts the cursor back on the handle, which resumes live output.
+func (m Model) grabShade() Model { return m.setSelected(len(m.rows)) }
+
+// scrollToCursor nudges the held window's anchor by the minimum needed to keep
+// the cursor on screen. It never moves further than that, so a held view stays
+// as still as it can.
+func (m Model) scrollToCursor() Model {
+	if m.selected < m.top {
+		m.top = m.selected
+		return m
+	}
+	for m.top < len(m.rows)-1 {
+		if _, end := m.listWindow(); m.selected < end {
+			break
+		}
+		m.top++
+	}
+	return m
+}
+
+// openDetail points the detail pane at the selected row and shows it. With the
+// cursor on the handle there is no selected row, so the newest one is inspected.
 func (m Model) openDetail() Model {
 	if len(m.rows) == 0 {
 		return m
 	}
-	m.detailEntry = m.rows[m.selected].Entry
+	i := m.selected
+	if i >= len(m.rows) {
+		i = len(m.rows) - 1
+	}
+	m.detailEntry = m.rows[i].Entry
 	m.detail.Width, m.detail.Height = m.detailDims()
 	m.detail.SetContent(m.wrappedDetail())
 	m.detail.GotoTop()
@@ -213,10 +348,38 @@ func (m Model) openDetail() Model {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Forward mode owns the keyboard completely — including 'q', which is the
+	// whole point: the child needs to see it. Only esc gets out.
+	if m.forwarding {
+		if msg.String() == "esc" {
+			m.forwarding = false
+			return m, nil
+		}
+		if m.child != nil {
+			_ = m.child.Send(keyBytes(msg))
+		}
+		return m, nil
+	}
+
 	// Quit and the mouse toggle work from anywhere, including the detail pane.
 	switch msg.String() {
 	case "q", "ctrl+c":
+		// Take the producer down with us. Nothing to do in pipe mode, or once
+		// the child has already exited.
+		if m.child != nil && !m.childExited {
+			return m, terminateThenQuit(m.child)
+		}
 		return m, tea.Quit
+	case "Q":
+		// Detach: leave the child running, with its output now going nowhere.
+		return m, tea.Quit
+	case "f":
+		// Hand the keyboard to the child so its own shortcuts (vite's r,
+		// nodemon's rs) stay reachable.
+		if m.child != nil && !m.childExited {
+			m.forwarding = true
+		}
+		return m, nil
 	case "m":
 		// Handing tracking back to the terminal restores native text selection,
 		// so a line can be selected and copied.
@@ -244,25 +407,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m = m.openDetail()
 	case " ":
-		m.follow = !m.follow
-		if m.follow && len(m.rows) > 0 {
-			m.selected = len(m.rows) - 1
+		// Toggle: off the handle holds the shade at the newest row, back on it
+		// goes live.
+		if m.onShade() {
+			m = m.setSelected(len(m.rows) - 1)
+		} else {
+			m = m.grabShade()
 		}
 	case "j", "down":
-		// moveSelection follows iff parked on the newest row: pressing down at
-		// the bottom must NOT pause (there's nowhere to go), and walking down to
-		// the tail resumes follow.
+		// Down from the newest row lands on the handle and goes live.
 		m = m.moveSelection(1)
 	case "k", "up":
-		m = m.moveSelection(-1) // moved up, away from the live tail → pause
+		// Up off the handle pulls the shade down.
+		m = m.moveSelection(-1)
 	case "g":
-		m.selected = 0
-		m.follow = len(m.rows) <= 1 // top is the tail only with a single row
+		m = m.setSelected(0)
 	case "G":
-		if len(m.rows) > 0 {
-			m.selected = len(m.rows) - 1
-		}
-		m.follow = true // jump to newest → resume follow
+		m = m.grabShade()
 	}
 	return m, nil
 }
@@ -328,13 +489,20 @@ func (m Model) listWindow() (start, end int) {
 	if budget < 1 {
 		budget = 1
 	}
-	start, end = m.growUp(len(m.rows), budget)
-	if m.selected < start {
-		// Selection has been scrolled above the tail window: anchor on it and
-		// grow downward instead.
-		start, end = m.growDown(m.selected, budget)
+	if m.onShade() {
+		// Live: the window rides the newest row.
+		return m.growUp(len(m.rows), budget)
 	}
-	return start, end
+	// Held: pinned to the frozen anchor, so arriving rows pile up below the
+	// window instead of scrolling the view out from under you.
+	top := m.top
+	if top > len(m.rows)-1 {
+		top = len(m.rows) - 1
+	}
+	if top < 0 {
+		top = 0
+	}
+	return m.growDown(top, budget)
 }
 
 // growUp fills budget lines backward from end (exclusive), returning the window
@@ -435,45 +603,106 @@ func (m Model) listView(width int) string {
 }
 
 func (m Model) statusBar() string {
+	// Forward mode replaces the hints entirely: 'q' now goes to the child rather
+	// than quitting, so it has to be unmistakable which mode you are in.
+	if m.forwarding {
+		name := "the child"
+		if m.child != nil {
+			name = m.child.Name()
+		}
+		return "▶ " + selStyle.Render(moreStyle.Render(
+			fmt.Sprintf("clog %s · FORWARDING — every key goes to %s · esc to stop",
+				m.spinner(), name)))
+	}
+
 	if m.showDetail {
 		pos := "all"
 		if !(m.detail.AtTop() && m.detail.AtBottom()) {
 			pos = fmt.Sprintf("%d%%", int(m.detail.ScrollPercent()*100))
 		}
+		// The spinner rides along here too, so ingest stays visible while you
+		// are reading an entry.
 		return statusStyle.Render(fmt.Sprintf(
-			" clog · detail %s · j/k scroll · spc page · esc close · q quit", pos))
+			"   clog %s · detail %s · j/k scroll · spc page · esc close · q quit",
+			m.spinner(), pos))
 	}
-	mode := "PAUSED"
-	if m.follow {
-		mode = "FOLLOW"
+
+	live := m.onShade()
+	mode := "HELD"
+	if live {
+		mode = "LIVE"
 	}
-	start, end := m.listWindow()
 	base := statusStyle.Render(fmt.Sprintf(
-		" clog · %s · %d lines · %d shown", mode, m.ingested, len(m.rows)))
-	// Unseen content: ▲ older above the window, ▼ newer below it. Below is only
-	// non-zero while paused (follow keeps the window at the bottom), so a ▼N
-	// flags "you're paused and N newer lines have arrived out of view."
+		"clog %s · %s · %s lines · %d shown", m.spinner(), mode, comma(m.ingested), len(m.rows)))
+
 	var more string
-	if above := start; above > 0 {
-		more += moreStyle.Render(fmt.Sprintf(" ▲%d", above))
+	if start, _ := m.listWindow(); start > 0 {
+		more += moreStyle.Render(fmt.Sprintf(" · ▲%d", start))
 	}
-	if below := len(m.rows) - end; below > 0 {
-		more += moreStyle.Render(fmt.Sprintf(" ▼%d new", below))
+	if !live {
+		// What is piling up behind the shade. Both figures measure from the
+		// moment it came down, so the ratio shows how much of the stream the
+		// display filter is holding back.
+		more += moreStyle.Render(fmt.Sprintf(" · ▼%d of %s waiting",
+			len(m.rows)-m.heldRows, comma(m.ingested-m.heldLines)))
 	}
+
+	// A dead producer is worth saying loudly — the logs on screen are the last
+	// thing it did.
+	if m.childExited {
+		more += moreStyle.Render(fmt.Sprintf(" · child exited (%d)", m.childCode))
+	}
+
 	// Hints are terse because the bar has to fit a terminal width: where the key
 	// name already carries the meaning, the verb is dropped. State is rendered
 	// before hints, so a narrow window loses hints rather than state.
+	quitHint := "q quit"
+	forwardHint := ""
+	if m.child != nil && !m.childExited {
+		quitHint = "q quit+stop · Q detach" // q takes the producer with it
+		forwardHint = " · f keys→child"
+	}
 	tail := statusStyle.Render(fmt.Sprintf(
-		" · j/k · spc %s · enter open · m mouse:%s · q quit",
-		toggleWord(m.follow), onOff(m.mouse)))
-	return base + more + tail
+		" · j/k · spc %s · enter open%s · m mouse:%s · %s",
+		toggleWord(live), forwardHint, onOff(m.mouse), quitHint))
+
+	// The handle carries the cursor and the selected-row highlight while it
+	// holds it, so "where is the cursor" has one consistent answer.
+	line := base + more + tail
+	if live {
+		return "▶ " + selStyle.Render(line)
+	}
+	return "  " + line
 }
 
-func toggleWord(follow bool) string {
-	if follow {
-		return "pause"
+// spinnerFrames advance one frame per ingested line, so the glyph moves exactly
+// when data flows and freezes solid the instant it stops. A time-based pulse
+// would need a ticker to turn itself off and would repaint while idle; this
+// needs neither, and a fast stream visibly spins faster than a trickle.
+var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+func (m Model) spinner() string {
+	return string(spinnerFrames[m.ingested%len(spinnerFrames)])
+}
+
+// comma groups thousands, so a six-figure line count stays readable at a glance.
+func comma(n int) string {
+	s := strconv.Itoa(n)
+	var b strings.Builder
+	for i := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(s[i])
 	}
-	return "follow"
+	return b.String()
+}
+
+func toggleWord(live bool) string {
+	if live {
+		return "hold"
+	}
+	return "live"
 }
 
 func onOff(b bool) string {

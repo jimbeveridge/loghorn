@@ -36,7 +36,8 @@ JSON* — plus the two things that make it trustworthy on a live tail (alerts, s
 - Configuration via **CLI flags only** (e.g. `--context N`, `--filter`, `--notify`). No config
   file yet. (Notification flags were refined post-v0 — see v0.x below.)
 
-Deferred out of v0: the query grid, interactive search, search-to-rule, a config file, mouse.
+Deferred out of v0: the query grid, interactive search, search-to-rule, a config file.
+(Mouse support was deferred out of v0 and has since landed — see v0.x below.)
 
 ## v0.x — post-v0 polish  ·  done
 
@@ -48,12 +49,38 @@ Shipped after v0 in response to real use:
   v1 item; done early.)
 - **Reliable keyboard + resize when piping**: because stdin is the log stream, the TUI reads
   key and resize events from `/dev/tty`; the layout reflows live on terminal resize.
-- **Unseen-content indicator**: the status bar shows `▼N new` (paused, with newer lines out of
-  view) and `▲N` (older lines above), counted over the active display set.
-- **Follow semantics**: follow ⇔ parked on the newest row — pressing down at the bottom no
-  longer flips to PAUSED, and `G` (or walking down to the tail) resumes follow.
+- **Unseen-content indicator**: the status bar shows `▲N` for older lines above the window, and
+  while held `▼N of M waiting` for what is piling up behind the shade (see below).
+- **Windowshade follow model**: the status bar is the shade's pull handle. The cursor is a
+  position in `[0, len(rows)]`, and the extra slot past the last row *is* the bar — resting
+  there means live, so `follow` is derived rather than a flag kept in sync. Moving up off the
+  handle pulls the shade down: the window is pinned where it stands, so arriving rows pile up
+  below it instead of scrolling the view (the old paused mode only stopped the cursor, not the
+  scrolling). `j`/`down` from the newest row, `G`, `space` or clicking the bar grab it back.
+- **Liveness at a glance**: the bar carries a total ingest count — climbing even when nothing
+  passes the display filter — and a braille spinner that advances one frame per ingested line,
+  so it moves exactly when data flows and freezes solid when the pipe stops. No ticker, no
+  idle repaints.
 - **Per-line ingest time**: each list line is prefaced with the wall-clock time clog received
   it, `HH:MM:SS.mmm` (no date).
+- **Mouse support** (on by default): click to select, double-click to open the detail pane,
+  wheel to walk the list or scroll the pane. `m` toggles capture, handing text selection back
+  to the terminal so a line can be copied. One `listLines` layout backs both rendering and
+  hit-testing, so a click cannot land on a row other than the one under the cursor.
+- **Frame fits the terminal**: Bubble Tea drops the *top* of an oversized frame, so an overlong
+  one wiped the list. Multi-line messages are flattened to the single line the list gives them,
+  `⋯` gap markers are budgeted as the lines they are, and the trailing newline is gone.
+- **Stack traces read as stack traces**: newlines inside JSON string values print as real line
+  breaks in the detail pane instead of literal `\n`.
+- **clog launches the producer** (`clog -- npm run dev`): in a pipeline only stdout is piped, so
+  both processes still read `/dev/tty` and the kernel splits keystrokes between them — measured
+  at 8 of 10 keys going to the producer, which is why `q` often missed and npm ended up acting
+  on stray keys and mouse escapes, then outlived clog (node ignores `SIGPIPE`). Launching fixes
+  it at the root: stdout+stderr share one pipe, stdin is a pty (so the child's own shortcuts
+  still work, reachable via `f`), and the child runs in its own process group. `q` stops that
+  group (SIGTERM, `--shutdown-grace`, then SIGKILL); `Q` detaches and leaves it running. If the
+  child dies on its own the TUI stays up and the bar says so, since that is when the scrollback
+  matters most. Piping still works for files and non-interactive producers.
 - **Refined error notifications** (`--notify`): fire once per error burst — a burst ends after
   a quiet gap (`--notify-reset`, default 15s) so the next error notifies again — and skip
   errors whose own log timestamp is older than `--notify-max-age` (default 1s), so replaying an

@@ -18,36 +18,33 @@ func imps(m Model, n int) Model {
 	return m
 }
 
-// While paused with newer rows below the visible window, the status bar must
-// surface a ▼ indicator; while following it must not (the window is pinned to
-// the bottom, so nothing newer is unseen).
-func TestMoreContentIndicatorWhenPaused(t *testing.T) {
+// While live nothing is behind the shade, so the bar shows no ▼; once it is down
+// and rows arrive, the bar reports the backlog. ▲ flags older content scrolled
+// above the window.
+func TestBacklogIndicators(t *testing.T) {
 	m := NewModel(nil, 1000, 0) // contextN 0 → one display row per important entry
-	m.width, m.height = 40, 5   // visible = 4 rows
+	m.width, m.height = 60, 5   // visible = 4 rows
 	m = imps(m, 20)
 
-	// Following: pinned to the bottom, nothing unseen below.
-	if _, end := m.listWindow(); end != len(m.rows) {
-		t.Fatalf("following should reach the last row, end=%d len=%d", end, len(m.rows))
-	}
 	if strings.Contains(m.statusBar(), "▼") {
-		t.Fatalf("no ▼ expected while following:\n%s", m.statusBar())
+		t.Fatalf("no ▼ expected while live:\n%s", m.statusBar())
+	}
+	if !strings.Contains(m.statusBar(), "▲") {
+		t.Fatalf("expected ▲ for the rows scrolled above the window:\n%s", m.statusBar())
 	}
 
-	// Pause and scroll up.
+	// Pull the shade down and scroll up.
 	for i := 0; i < 10; i++ {
 		m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 		m = m2.(Model)
 	}
-	if m.follow {
-		t.Fatalf("k should pause (follow=false)")
+	if m.onShade() {
+		t.Fatalf("k should hold the shade")
 	}
-	_, end := m.listWindow()
-	if below := len(m.rows) - end; below <= 0 {
-		t.Fatalf("expected unseen rows below while paused, below=%d", below)
-	}
-	if !strings.Contains(m.statusBar(), "▼") {
-		t.Fatalf("status bar should show ▼ for unseen newer content:\n%s", m.statusBar())
+
+	m = imps(m, 6) // arrives behind the shade
+	if !strings.Contains(m.statusBar(), "▼6 of 6 waiting") {
+		t.Fatalf("status bar should report the backlog:\n%s", m.statusBar())
 	}
 }
 

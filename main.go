@@ -1,11 +1,23 @@
 // Command clog captures GCP Cloud Run logs and focuses attention on the
-// important lines. Pipe logs into stdin; run with --filter for a headless
-// stdin->stdout filter.
+// important lines.
+//
+// Prefer launching the producer:
+//
+//	clog -- npm run dev
+//
+// clog then owns the process: it captures stdout and stderr together, keeps the
+// keyboard to itself, and shuts the whole process group down on quit. Piping
+// (`npm run dev | clog`) still works and is right for files and non-interactive
+// producers, but an interactive one fights clog for /dev/tty — both processes
+// read it, so keystrokes get split between them at random.
+//
+// Run with --filter for a headless stdin->stdout filter.
 package main
 
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -17,8 +29,42 @@ import (
 	"clog/internal/entry"
 	"clog/internal/headless"
 	"clog/internal/ingest"
+	"clog/internal/runner"
 	"clog/internal/tui"
 )
+
+func usage() {
+	fmt.Fprint(flag.CommandLine.Output(), `clog — watch logs, surface the failures.
+
+Usage:
+  clog [flags] -- <command> [args...]   launch the command and capture it (preferred)
+  <command> | clog [flags]              read a pipe
+
+Launching is preferred for an interactive producer such as a dev server: clog
+captures its stdout and stderr together, keeps the keyboard to itself, and stops
+its whole process group on quit. In a pipeline the producer still holds the
+terminal, so it competes with clog for keystrokes and outlives it.
+
+Examples:
+  clog -- npm run dev
+  clog --context 5 -- go test ./...
+  kubectl logs -f pod | clog
+
+Flags:
+`)
+	flag.PrintDefaults()
+}
+
+// childControl adapts the runner to what the TUI needs, binding in the
+// configured shutdown grace period.
+type childControl struct {
+	r     *runner.Runner
+	grace time.Duration
+}
+
+func (c childControl) Send(p []byte) error { return c.r.Send(p) }
+func (c childControl) Terminate()          { c.r.Terminate(c.grace) }
+func (c childControl) Name() string        { return c.r.Name() }
 
 func main() {
 	filterMode := flag.Bool("filter", false, "headless: print only important lines to stdout")
@@ -27,6 +73,8 @@ func main() {
 	notify := flag.Bool("notify", false, "fire a desktop notification when fresh errors occur")
 	notifyMaxAge := flag.Duration("notify-max-age", time.Second, "skip notifications for errors older than this (by their log timestamp)")
 	notifyReset := flag.Duration("notify-reset", 15*time.Second, "end an error burst after this quiet gap, so the next error notifies again")
+	grace := flag.Duration("shutdown-grace", 5*time.Second, "how long a launched command gets to exit on SIGTERM before SIGKILL")
+	flag.Usage = usage
 	flag.Parse()
 
 	if *filterMode {
@@ -35,6 +83,22 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	// With a command after `--`, clog launches it and owns it: stdout and stderr
+	// arrive together, the child is kept off the terminal so it can't steal
+	// keystrokes, and quitting can shut its whole process group down. Without
+	// one, read the pipe as before.
+	var source io.Reader = os.Stdin
+	var child *runner.Runner
+	if argv := flag.Args(); len(argv) > 0 {
+		r, err := runner.Start(argv)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "clog:", err)
+			os.Exit(1)
+		}
+		child, source = r, r.Output()
+		defer child.Close()
 	}
 
 	ch := make(chan entry.Entry, 1024)
@@ -46,12 +110,12 @@ func main() {
 		notifier = alert.BeeepNotifier{}
 	}
 
-	// errCh carries a non-EOF stdin read error from the producer goroutine to
-	// main. It's buffered so the goroutine never blocks sending it, even if
-	// the TUI has already quit (e.g. via 'q') and nobody is listening yet.
+	// errCh carries a non-EOF read error from the producer goroutine to main.
+	// It's buffered so the goroutine never blocks sending it, even if the TUI
+	// has already quit (e.g. via 'q') and nobody is listening yet.
 	errCh := make(chan error, 1)
 	go func() {
-		err := ingest.Lines(os.Stdin, func(line []byte) {
+		err := ingest.Lines(source, func(line []byte) {
 			e := adapter.ParseLine(line)
 			e.Received = time.Now()
 			e.Important = engine.IsImportant(e)
@@ -79,7 +143,19 @@ func main() {
 		defer tty.Close()
 		opts = append(opts, tea.WithInput(tty))
 	}
-	p := tea.NewProgram(tui.NewModel(ch, *capacity, *contextN), opts...)
+	model := tui.NewModel(ch, *capacity, *contextN)
+	if child != nil {
+		model.SetChild(childControl{r: child, grace: *grace})
+	}
+	p := tea.NewProgram(model, opts...)
+	if child != nil {
+		// Surface an unexpected exit in the TUI instead of tearing it down — a
+		// crash is exactly when the scrollback is worth reading.
+		go func() {
+			<-child.Exited()
+			p.Send(tui.ChildExited(child.ExitCode()))
+		}()
+	}
 	_, runErr := p.Run()
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "clog:", runErr)

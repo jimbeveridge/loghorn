@@ -23,16 +23,16 @@ func TestModelAppendsAndSelects(t *testing.T) {
 		t.Fatalf("expected 2 display rows, got %d", len(m.rows))
 	}
 
-	// Follow mode keeps selection on the last row.
-	if m.selected != 1 {
-		t.Fatalf("follow should select last row, got %d", m.selected)
+	// Live keeps the cursor on the handle, one past the last row.
+	if !m.onShade() || m.selected != 2 {
+		t.Fatalf("should be live on the handle, got selected=%d live=%v", m.selected, m.onShade())
 	}
 
-	// 'k' moves selection up and turns off follow.
+	// 'k' moves the cursor onto the newest row and holds the shade.
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	m = m2.(Model)
-	if m.selected != 0 || m.follow {
-		t.Fatalf("after k: selected=%d follow=%v, want 0/false", m.selected, m.follow)
+	if m.selected != 1 || m.onShade() {
+		t.Fatalf("after k: selected=%d live=%v, want 1/false", m.selected, m.onShade())
 	}
 
 	// 'enter' opens detail; 'esc' closes it.

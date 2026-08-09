@@ -51,22 +51,25 @@ func TestClickSelectsRow(t *testing.T) {
 	}
 }
 
-// Clicking away from the newest row pauses; clicking the newest row resumes
-// follow — the same rule j/k use.
-func TestClickDrivesFollowLikeKeys(t *testing.T) {
+// Clicking any row lets go of the handle — including the newest one. Only the
+// bar itself grabs it back.
+func TestClickingAnyRowHolds(t *testing.T) {
 	m, _ := mouseModel(0)
 	m = imps(m, 8)
-	if !m.follow {
-		t.Fatalf("precondition: should start following")
+	if !m.onShade() {
+		t.Fatalf("precondition: should start live on the handle")
 	}
 
 	m = clickAt(m, 10, 3)
-	if m.follow {
-		t.Fatalf("clicking an older row should pause")
+	if m.onShade() {
+		t.Fatalf("clicking an older row should hold the shade")
 	}
-	m = clickAt(m, 10, 7) // the last of 8 rows
-	if !m.follow {
-		t.Fatalf("clicking the newest row should resume follow (selected=%d of %d)", m.selected, len(m.rows))
+	m = clickAt(m, 10, 7) // the newest of 8 rows
+	if m.onShade() {
+		t.Fatalf("clicking the newest row should still hold the shade (selected=%d of %d)", m.selected, len(m.rows))
+	}
+	if m.selected != 7 {
+		t.Fatalf("clicking the newest row should select it, got %d", m.selected)
 	}
 }
 
@@ -104,14 +107,16 @@ func TestClickOnGapMarkerIsNoop(t *testing.T) {
 	}
 }
 
-// Clicking past the end of the list, or on the status bar, is a no-op.
+// Clicking the empty space between the last row and the bar, or past the frame
+// entirely, is a no-op. (The bar itself grabs the handle — see
+// TestClickingBarGrabsHandle.)
 func TestClickBelowListIsNoop(t *testing.T) {
 	m, _ := mouseModel(0)
 	m = imps(m, 3)
 	m = clickAt(m, 10, 1)
 	before := m.selected
 
-	for _, y := range []int{len(m.listLines(m.width)), m.height - 1, m.height + 5} {
+	for _, y := range []int{len(m.listLines(m.width)), m.height - 2, m.height + 5} {
 		m = clickAt(m, 10, y)
 		if m.selected != before {
 			t.Fatalf("click at y=%d should be a no-op, selection moved to %d", y, m.selected)
@@ -194,23 +199,23 @@ func TestClickInDetailPaneIgnored(t *testing.T) {
 	}
 }
 
-// The wheel moves the selection one row at a time and follows the same pause
-// rule as j/k.
+// The wheel walks the cursor one position at a time, through the handle at the
+// bottom, on the same rules as j/k.
 func TestWheelScrollsList(t *testing.T) {
 	m, _ := mouseModel(0)
 	m = imps(m, 8)
-	last := len(m.rows) - 1
+	handle := len(m.rows)
 
 	m = wheel(m, tea.MouseButtonWheelUp)
-	if m.selected != last-1 {
-		t.Fatalf("wheel up should move one row up, got %d want %d", m.selected, last-1)
+	if m.selected != handle-1 {
+		t.Fatalf("wheel up should land on the newest row %d, got %d", handle-1, m.selected)
 	}
-	if m.follow {
-		t.Fatalf("wheel up away from the tail should pause")
+	if m.onShade() {
+		t.Fatalf("wheel up off the handle should hold the shade")
 	}
 	m = wheel(m, tea.MouseButtonWheelDown)
-	if m.selected != last || !m.follow {
-		t.Fatalf("wheel down to the tail should resume follow (selected=%d follow=%v)", m.selected, m.follow)
+	if m.selected != handle || !m.onShade() {
+		t.Fatalf("wheel down to the handle should go live (selected=%d live=%v)", m.selected, m.onShade())
 	}
 
 	// Wheeling past the ends clamps rather than wrapping.
@@ -223,8 +228,8 @@ func TestWheelScrollsList(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		m = wheel(m, tea.MouseButtonWheelDown)
 	}
-	if m.selected != last {
-		t.Fatalf("wheel down should clamp at the bottom, got %d", m.selected)
+	if m.selected != handle || !m.onShade() {
+		t.Fatalf("wheel down should clamp on the handle, got %d", m.selected)
 	}
 }
 
