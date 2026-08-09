@@ -67,6 +67,11 @@ Shipped after v0 in response to real use:
   wheel to walk the list or scroll the pane. `m` toggles capture, handing text selection back
   to the terminal so a line can be copied. One `listLines` layout backs both rendering and
   hit-testing, so a click cannot land on a row other than the one under the cursor.
+- **Key reference behind `?`**: the status bar keeps only the keys reached for constantly —
+  `j/k`, `space`, `enter`, `q` — plus `?`, so the rest stay discoverable. `m`, `f`, `Q`, `g`
+  and `G` live in a scrollable help overlay that layers over whatever you were reading. Mouse
+  capture is reported on the bar only when it is *off*, the surprising state. `enter` closes
+  the detail pane as well as opening it, so undoing it doesn't mean crossing the keyboard.
 - **Frame fits the terminal**: Bubble Tea drops the *top* of an oversized frame, so an overlong
   one wiped the list. Multi-line messages are flattened to the single line the list gives them,
   `⋯` gap markers are budgeted as the lines they are, and the trailing newline is gone.
