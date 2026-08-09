@@ -487,6 +487,8 @@ func (m Model) helpContent() string {
 	head(" Moving")
 	row("j / ↓", "down one line; past the newest row grabs the shade (live)")
 	row("k / ↑", "up one line; off the shade holds it (output stops)")
+	row("pgdn / pgup", "a screenful (fn+↓ / fn+↑ on a Mac laptop)")
+	row("ctrl+d / ctrl+u", "half a screenful")
 	row("g / G", "oldest row / grab the shade")
 	row("space", "hold or release the shade")
 	row("click", "select a line — click the status bar to grab the shade")
@@ -655,6 +657,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		// Up off the handle pulls the shade down.
 		m = m.moveSelection(-1)
+	case "pgdown":
+		m = m.moveSelection(m.windowBudget())
+	case "pgup":
+		m = m.moveSelection(-m.windowBudget())
+	case "ctrl+d":
+		m = m.moveSelection(m.halfPage())
+	case "ctrl+u":
+		m = m.moveSelection(-m.halfPage())
 	case "g":
 		m = m.setSelected(0)
 	case "G":
@@ -840,10 +850,21 @@ func (m Model) listWindow() (start, end int) {
 	return start, end
 }
 
-// windowBudget is how many rows fit above the status bar.
+// windowBudget is how many rows fit above the status bar, and so how far a page
+// key moves.
 func (m Model) windowBudget() int {
 	if b := m.height - 1; b > 0 {
 		return b
+	}
+	return 1
+}
+
+// halfPage is the ctrl+d/ctrl+u step. Half a screen keeps a few lines of overlap
+// either side of the jump, which matters more in a log than in a document — you
+// keep your place instead of landing somewhere unrecognisable.
+func (m Model) halfPage() int {
+	if h := m.windowBudget() / 2; h > 0 {
+		return h
 	}
 	return 1
 }

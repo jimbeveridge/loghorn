@@ -86,6 +86,12 @@ Shipped after v0 in response to real use:
   went with it: with no context window almost every pair of failures has something hidden between
   them, so a marker would have appeared before nearly every row and cost half the screen to say
   what the mode already says. Dropping both collapsed the window arithmetic to one row per line.
+- **Paging**: `pgdn`/`pgup` move a screenful and `ctrl+d`/`ctrl+u` half of one, in the log view;
+  the detail pane and help overlay already had them from the viewport's keymap. Page size follows
+  the terminal height. Paging obeys the shade like `j`/`k` do — down past the newest row grabs the
+  handle and goes live. Half-page is the one to reach for: the overlap keeps your place, which
+  matters more in a log than in a document. On a Mac laptop `pgdn`/`pgup` are `fn+↓`/`fn+↑`, which
+  is why the ctrl chords exist.
 - **Yank** (`y` in the detail pane): copies the inspected entry to the system clipboard, plain and
   entire — the pane's width is a display choice, not a decision about what you meant to take.
   Shells out to `pbcopy`/`wl-copy`/`xclip`/`xsel` rather than writing an OSC 52 escape, because

@@ -16,6 +16,14 @@ func key(m Model, s string) (Model, tea.Cmd) {
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 	case " ":
 		msg = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
+	case "pgup":
+		msg = tea.KeyMsg{Type: tea.KeyPgUp}
+	case "pgdown":
+		msg = tea.KeyMsg{Type: tea.KeyPgDown}
+	case "ctrl+d":
+		msg = tea.KeyMsg{Type: tea.KeyCtrlD}
+	case "ctrl+u":
+		msg = tea.KeyMsg{Type: tea.KeyCtrlU}
 	default:
 		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
