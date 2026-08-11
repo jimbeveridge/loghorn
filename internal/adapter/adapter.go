@@ -1,7 +1,7 @@
 // Package adapter turns raw log lines into normalized entry.Entry values.
 package adapter
 
-import "loghorn/internal/entry"
+import "github.com/jimbeveridge/loghorn/internal/entry"
 
 // Adapter detects and parses one log format. Detect must be cheap.
 type Adapter interface {

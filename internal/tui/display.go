@@ -1,6 +1,6 @@
 package tui
 
-import "loghorn/internal/entry"
+import "github.com/jimbeveridge/loghorn/internal/entry"
 
 type RowKind int
 

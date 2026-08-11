@@ -4,7 +4,7 @@ package engine
 import (
 	"regexp"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 var failureText = regexp.MustCompile(`(?i)panic|fatal|exception|traceback`)

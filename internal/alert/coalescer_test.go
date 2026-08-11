@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 // A fresh error fires once; consecutive errors within the burst are suppressed;

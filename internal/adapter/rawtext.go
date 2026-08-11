@@ -3,7 +3,7 @@ package adapter
 import (
 	"strings"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 type RawTextAdapter struct{}

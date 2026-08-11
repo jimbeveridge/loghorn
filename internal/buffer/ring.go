@@ -1,7 +1,7 @@
 // Package buffer provides a bounded ring buffer of log entries.
 package buffer
 
-import "loghorn/internal/entry"
+import "github.com/jimbeveridge/loghorn/internal/entry"
 
 type Ring struct {
 	data  []entry.Entry

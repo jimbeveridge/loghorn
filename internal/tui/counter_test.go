@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 // The status bar reports how many lines have been ingested, so an idle-looking

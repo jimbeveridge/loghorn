@@ -4,9 +4,9 @@ package headless
 import (
 	"io"
 
-	"loghorn/internal/adapter"
-	"loghorn/internal/engine"
-	"loghorn/internal/ingest"
+	"github.com/jimbeveridge/loghorn/internal/adapter"
+	"github.com/jimbeveridge/loghorn/internal/engine"
+	"github.com/jimbeveridge/loghorn/internal/ingest"
 )
 
 // Run reads lines from r and writes the original bytes of each important line

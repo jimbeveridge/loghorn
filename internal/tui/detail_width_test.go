@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"loghorn/internal/adapter"
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/adapter"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 // openOn feeds one entry and opens the detail pane on it.

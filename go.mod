@@ -1,4 +1,4 @@
-module loghorn
+module github.com/jimbeveridge/loghorn
 
 go 1.24.2
 

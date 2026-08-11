@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 func lines(n int, important map[int]bool) []entry.Entry {

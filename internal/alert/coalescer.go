@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 // Notifier delivers a desktop notification. Implementations live elsewhere so

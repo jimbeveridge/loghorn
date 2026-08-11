@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 func TestIsImportant(t *testing.T) {

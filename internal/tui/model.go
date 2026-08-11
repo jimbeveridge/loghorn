@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"loghorn/internal/buffer"
-	"loghorn/internal/clipboard"
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/buffer"
+	"github.com/jimbeveridge/loghorn/internal/clipboard"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 type entryMsg entry.Entry

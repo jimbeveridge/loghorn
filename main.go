@@ -23,14 +23,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"loghorn/internal/adapter"
-	"loghorn/internal/alert"
-	"loghorn/internal/engine"
-	"loghorn/internal/entry"
-	"loghorn/internal/headless"
-	"loghorn/internal/ingest"
-	"loghorn/internal/runner"
-	"loghorn/internal/tui"
+	"github.com/jimbeveridge/loghorn/internal/adapter"
+	"github.com/jimbeveridge/loghorn/internal/alert"
+	"github.com/jimbeveridge/loghorn/internal/engine"
+	"github.com/jimbeveridge/loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/headless"
+	"github.com/jimbeveridge/loghorn/internal/ingest"
+	"github.com/jimbeveridge/loghorn/internal/runner"
+	"github.com/jimbeveridge/loghorn/internal/tui"
 )
 
 func usage() {

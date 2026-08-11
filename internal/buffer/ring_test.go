@@ -3,7 +3,7 @@ package buffer
 import (
 	"testing"
 
-	"loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
 func msg(m string) entry.Entry { return entry.Entry{Message: m} }
