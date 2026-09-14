@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	keyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")) // blue
-	strStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("green"))
+	keyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))  // blue
+	strStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))   // green
 	numStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
 	boolStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")) // magenta-ish
 	nullStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // gray
