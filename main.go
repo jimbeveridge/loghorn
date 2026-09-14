@@ -115,7 +115,7 @@ func main() {
 	// has already quit (e.g. via 'q') and nobody is listening yet.
 	errCh := make(chan error, 1)
 	go func() {
-		err := ingest.Lines(source, func(line []byte) {
+		err := ingest.Records(source, func(line []byte) {
 			e := adapter.ParseLine(line)
 			e.Received = time.Now()
 			e.Important = engine.IsImportant(e)

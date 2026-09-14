@@ -10,21 +10,30 @@ type Adapter interface {
 }
 
 var (
-	logEntry LogEntryAdapter
-	rawText  RawTextAdapter
+	logEntry  LogEntryAdapter
+	yamlEntry YAMLAdapter
+	rawText   RawTextAdapter
 )
 
-// ParseLine normalizes a single line. It never returns an error: a line that
-// looks like JSON but fails to parse falls back to raw text, flagged Malformed.
+// ParseLine normalizes a single record — usually one line, but one whole
+// document when ingest.Records has split a gcloud `--format=yaml` stream on
+// "---". It never returns an error: a record that looks like JSON or YAML but
+// fails to parse falls back to raw text, flagged Malformed.
 func ParseLine(line []byte) entry.Entry {
-	if logEntry.Detect(line) {
+	switch {
+	case logEntry.Detect(line):
 		if e, err := logEntry.Parse(line); err == nil {
 			return e
 		}
+	case yamlEntry.Detect(line):
+		if e, err := yamlEntry.Parse(line); err == nil {
+			return e
+		}
+	default:
 		e, _ := rawText.Parse(line)
-		e.Malformed = true
 		return e
 	}
 	e, _ := rawText.Parse(line)
+	e.Malformed = true
 	return e
 }

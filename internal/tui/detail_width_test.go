@@ -62,7 +62,7 @@ func TestDetailPaneFitsNarrowContent(t *testing.T) {
 }
 
 // Content that fits is untouched: the viewport holds exactly the source lines.
-func TestFittingContentIsNotClipped(t *testing.T) {
+func TestFittingContentIsNotWrapped(t *testing.T) {
 	e := rawEntry("alpha", "beta gamma delta", "epsilon")
 	m := openOn(t, 120, 20, e)
 
@@ -225,13 +225,13 @@ func TestDetailFrameStillFitsHeight(t *testing.T) {
 	}
 }
 
-// Capped content is clipped to the pane, so nothing spills into the list.
-func TestCappedContentIsClippedToPane(t *testing.T) {
+// Capped content is wrapped to the pane, so nothing spills into the list.
+func TestCappedContentIsWrappedToPane(t *testing.T) {
 	e := adapter.ParseLine([]byte(bigLogEntry))
 	e.Important = true
 	m := openOn(t, 120, 30, e)
 
-	if got := maxLineWidth(m.clippedDetail()); got > m.detail.Width {
-		t.Fatalf("clipped content is %d columns, pane is %d", got, m.detail.Width)
+	if got := maxLineWidth(m.wrappedDetail()); got > m.detail.Width {
+		t.Fatalf("wrapped content is %d columns, pane is %d", got, m.detail.Width)
 	}
 }

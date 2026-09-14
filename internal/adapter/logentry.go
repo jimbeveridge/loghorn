@@ -20,8 +20,16 @@ func (LogEntryAdapter) Parse(line []byte) (entry.Entry, error) {
 	if err := json.Unmarshal(line, &obj); err != nil {
 		return entry.Entry{}, err
 	}
+	return fromLogEntryObject(line, obj), nil
+}
+
+// fromLogEntryObject builds an Entry from a decoded LogEntry object. Shared by
+// the JSON and YAML adapters, which differ only in how they get from bytes to
+// this map — the GCP LogEntry schema and every field below it are the same
+// either way.
+func fromLogEntryObject(raw []byte, obj map[string]any) entry.Entry {
 	e := entry.Entry{
-		Raw:    append([]byte(nil), line...),
+		Raw:    append([]byte(nil), raw...),
 		Format: entry.FormatLogEntry,
 		JSON:   obj,
 	}
@@ -36,7 +44,7 @@ func (LogEntryAdapter) Parse(line []byte) (entry.Entry, error) {
 	e.Timestamp = logEntryTimestamp(obj)
 	e.Message = logEntryMessage(obj)
 	e.CorrelationID = correlationID(obj)
-	return e, nil
+	return e
 }
 
 // logEntryTimestamp parses the entry's own timestamp. Canonical LogEntry uses

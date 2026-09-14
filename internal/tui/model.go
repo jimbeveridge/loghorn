@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/cellbuf"
 
 	"github.com/jimbeveridge/loghorn/internal/buffer"
 	"github.com/jimbeveridge/loghorn/internal/clipboard"
@@ -61,6 +62,14 @@ type Model struct {
 	// each frame so the window rides the newest row; while held it stays put, so
 	// arriving rows pile up below the window instead of scrolling the view.
 	top int
+
+	// topSeq and selSeq are the Entry.Seq of the rows top and selected pointed
+	// at when last set. The ring is bounded, so an arriving line can evict an
+	// old one and shift every index in m.rows even though nothing the user did
+	// changed — rebuild relocates top and selected by these instead of trusting
+	// the old index, or a held view would silently drift toward newer content
+	// as the ring wrapped underneath it.
+	topSeq, selSeq int
 
 	// heldRows and heldLines snapshot the counters at the moment the shade came
 	// down, so the bar can report what is waiting behind it.
@@ -180,16 +189,25 @@ func (m Model) rebuild() Model {
 
 	if live {
 		m.selected = len(m.rows) // ride the handle as the list grows
-	} else if m.selected > len(m.rows) {
-		m.selected = len(m.rows)
-	}
-	if m.top > len(m.rows)-1 {
-		m.top = 0 // the old anchor means nothing against a different row set
-	}
-	if m.top < 0 {
-		m.top = 0
+	} else {
+		m.top = seqIndex(m.rows, m.topSeq)
+		m.selected = seqIndex(m.rows, m.selSeq)
 	}
 	return m
+}
+
+// seqIndex returns the index of the row carrying seq, or — if that entry has
+// since been evicted from the ring — the index of the oldest still-held row
+// newer than it. Rows are chronological, so eviction only ever removes from
+// the front: the result only ever creeps forward by exactly as much as was
+// evicted, never jumps to the newest row outright.
+func seqIndex(rows []Row, seq int) int {
+	for i, r := range rows {
+		if r.Entry.Seq >= seq {
+			return i
+		}
+	}
+	return len(rows)
 }
 
 // anchorRow is the row a keystroke acts on: the selected one, or the newest when
@@ -229,7 +247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showDetail {
 			m.detailW = m.detailWidth() // the cap moved with the terminal
 			m.detail.Width, m.detail.Height = m.detailDims()
-			m.detail.SetContent(m.clippedDetail()) // re-clip to the new pane width
+			m.detail.SetContent(m.wrappedDetail()) // re-wrap to the new pane width
 		}
 		if m.showHelp {
 			m = m.openHelp() // re-wrap and re-size, keeping it on screen
@@ -238,7 +256,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case entryMsg:
 		m.ingested++
-		m.ring.Append(entry.Entry(msg))
+		e := entry.Entry(msg)
+		e.Seq = m.ingested
+		m.ring.Append(e)
 		return m.rebuild(), waitForEntry(m.ch)
 
 	case doneMsg:
@@ -320,7 +340,7 @@ func (m Model) toggleCorrelation() Model {
 
 // yank copies the inspected entry to the system clipboard, uncoloured — what is
 // on screen, in a form that pastes cleanly into a ticket or an editor. It copies
-// the whole entry, not the clipped view: the pane's width is a display choice,
+// the whole entry unwrapped, not the folded view: the pane's width is a display choice,
 // not a decision about what you meant to take.
 func (m Model) yank() Model {
 	text := plainDetail(m.detailEntry)
@@ -336,7 +356,7 @@ func (m Model) yank() Model {
 // the terminal.
 func plainDetail(e entry.Entry) string {
 	if e.JSON != nil {
-		return RenderJSON(e.JSON, true)
+		return RenderYAML(e.JSON, true)
 	}
 	return string(e.Raw)
 }
@@ -435,12 +455,24 @@ func (m Model) setSelected(i int) Model {
 		// there.
 		m.top, _ = m.listWindow()
 		m.heldRows, m.heldLines = len(m.rows), m.ingested
+		m.topSeq = m.rowSeq(m.top)
 	}
 	m.selected = i
+	m.selSeq = m.rowSeq(i)
 	if !m.onShade() {
 		m = m.scrollToCursor()
 	}
 	return m
+}
+
+// rowSeq is the Entry.Seq anchoring row i, or a sentinel that never matches a
+// real row's Seq (which starts at 1) when i is out of range — in particular
+// when i is the shade position, len(m.rows).
+func (m Model) rowSeq(i int) int {
+	if i < 0 || i >= len(m.rows) {
+		return 0
+	}
+	return m.rows[i].Entry.Seq
 }
 
 // moveSelection walks the cursor by delta positions.
@@ -462,6 +494,7 @@ func (m Model) scrollToCursor() Model {
 	if m.top < 0 {
 		m.top = 0
 	}
+	m.topSeq = m.rowSeq(m.top)
 	return m
 }
 
@@ -558,7 +591,7 @@ func (m Model) openDetail() Model {
 	m.detailEntry = m.rows[i].Entry
 	m.detailW = m.detailWidth() // sized to this entry, not the last one
 	m.detail.Width, m.detail.Height = m.detailDims()
-	m.detail.SetContent(m.clippedDetail())
+	m.detail.SetContent(m.wrappedDetail())
 	m.detail.GotoTop()
 	m.showDetail = true
 	return m
@@ -738,22 +771,51 @@ func (m Model) detailDims() (w, h int) {
 
 func renderDetail(e entry.Entry) string {
 	if e.JSON != nil {
-		return RenderJSON(e.JSON, false)
+		return RenderYAML(e.JSON, false)
 	}
 	return string(e.Raw)
 }
 
-// clippedDetail renders the inspected entry and clips each line to the pane
-// width rather than folding it. One log line stays one line, so the structure of
-// the JSON — and of a stack trace — survives; folding turned every long value
-// into a ragged block and made the pane hard to read down.
+// wrappedDetail renders the inspected entry and folds any line wider than the
+// pane onto continuation lines, so nothing past the right edge is hidden.
 //
-// Clipping is affordable now that the pane sizes itself to its content
-// (detailWidth): a line is only cut when the entry is wider than the terminal
-// less detailReserve, rather than every time it passed half the screen.
-func (m Model) clippedDetail() string {
+// The pane sizes itself to its content first (detailWidth), so a line only folds
+// once the entry is wider than the terminal less detailReserve. Callers redo the
+// fold whenever that cap moves — on open and on every resize.
+func (m Model) wrappedDetail() string {
 	w, _ := m.detailDims()
-	return lipgloss.NewStyle().MaxWidth(w).Render(renderDetail(m.detailEntry))
+	lines := strings.Split(renderDetail(m.detailEntry), "\n")
+	for i, ln := range lines {
+		lines[i] = wrapLine(ln, w)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// wrapLine folds one rendered line to w columns, breaking at spaces where it can
+// and mid-word where it must. Continuations keep the line's own indentation, so
+// a long value doesn't spill back to the left edge and break up the YAML's
+// nesting — unless that indent is more than half the pane, where it would leave
+// too little room to read.
+//
+// cellbuf.Wrap rather than ansi.Wrap: the content is coloured, and cellbuf
+// re-opens the active style on each continuation line. Without that, a folded
+// value loses its colour after the first line, because the overlay composites
+// the pane line by line.
+func wrapLine(ln string, w int) string {
+	if lipgloss.Width(ln) <= w {
+		return ln
+	}
+	body := strings.TrimLeft(ln, " ")
+	pad := len(ln) - len(body)
+	if pad > w/2 {
+		body, pad = ln, 0
+	}
+	indent := strings.Repeat(" ", pad)
+	parts := strings.Split(cellbuf.Wrap(body, w-pad, ""), "\n")
+	for i := range parts {
+		parts[i] = indent + parts[i]
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (m Model) View() string {

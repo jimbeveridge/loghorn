@@ -119,3 +119,84 @@ func TestParseLineValidJSON(t *testing.T) {
 		t.Fatalf("valid JSON should parse as LogEntry")
 	}
 }
+
+func TestYAMLDetect(t *testing.T) {
+	a := YAMLAdapter{}
+	if !a.Detect([]byte("---\nseverity: INFO\n")) {
+		t.Fatalf("Detect should be true for a record starting with ---")
+	}
+	if a.Detect([]byte("plain text line")) {
+		t.Fatalf("Detect should be false for plain text")
+	}
+	if a.Detect([]byte(`{"a":1}`)) {
+		t.Fatalf("Detect should be false for JSON")
+	}
+}
+
+func TestYAMLParse(t *testing.T) {
+	rec := []byte("---\nseverity: ERROR\nhttpRequest:\n  status: 503\ntextPayload: boom\ntimestamp: '2026-08-05T10:00:00Z'\n")
+	a := YAMLAdapter{}
+	e, err := a.Parse(rec)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if e.Format != entry.FormatLogEntry {
+		t.Fatalf("Format = %v, want FormatLogEntry", e.Format)
+	}
+	if e.Severity != entry.SevError {
+		t.Fatalf("Severity = %v, want SevError", e.Severity)
+	}
+	if e.HTTPStatus != 503 {
+		t.Fatalf("HTTPStatus = %d, want 503", e.HTTPStatus)
+	}
+	if e.Message != "boom" {
+		t.Fatalf("Message = %q, want boom", e.Message)
+	}
+	if e.Timestamp.IsZero() {
+		t.Fatalf("Timestamp should be parsed")
+	}
+}
+
+// Plain YAML integers decode as Go int, not float64 like encoding/json — they
+// must be normalized so HTTPStatus's type assertion (and anything else
+// downstream expecting JSON-shaped numbers) still works.
+func TestYAMLParseNormalizesIntegers(t *testing.T) {
+	rec := []byte("---\ncount: 42\nnested:\n  n: 7\n")
+	a := YAMLAdapter{}
+	e, err := a.Parse(rec)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if _, ok := e.JSON["count"].(float64); !ok {
+		t.Fatalf("count should normalize to float64, got %T", e.JSON["count"])
+	}
+	nested, ok := e.JSON["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested should be map[string]any, got %T", e.JSON["nested"])
+	}
+	if _, ok := nested["n"].(float64); !ok {
+		t.Fatalf("nested.n should normalize to float64, got %T", nested["n"])
+	}
+}
+
+func TestParseLineYAMLDocument(t *testing.T) {
+	rec := []byte("---\nseverity: WARNING\nmessage: from-yaml\n")
+	e := ParseLine(rec)
+	if e.Format != entry.FormatLogEntry {
+		t.Fatalf("YAML document should parse as LogEntry, got Format=%v Malformed=%v", e.Format, e.Malformed)
+	}
+	if e.Severity != entry.SevWarning {
+		t.Fatalf("Severity = %v, want SevWarning", e.Severity)
+	}
+	if e.Message != "from-yaml" {
+		t.Fatalf("Message = %q, want from-yaml", e.Message)
+	}
+}
+
+func TestParseLineMalformedYAML(t *testing.T) {
+	// A tab after the "---" separator is invalid YAML indentation.
+	e := ParseLine([]byte("---\n\tbad: [unterminated\n"))
+	if e.Format != entry.FormatRawText || !e.Malformed {
+		t.Fatalf("invalid YAML should fall back to raw text, flagged Malformed")
+	}
+}

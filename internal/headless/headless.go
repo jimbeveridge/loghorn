@@ -13,7 +13,7 @@ import (
 // (plus a newline) to w. Output is byte-for-byte faithful to the input line.
 func Run(r io.Reader, w io.Writer) error {
 	var writeErr error
-	err := ingest.Lines(r, func(line []byte) {
+	err := ingest.Records(r, func(line []byte) {
 		if writeErr != nil {
 			return
 		}

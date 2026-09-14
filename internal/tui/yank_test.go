@@ -37,7 +37,7 @@ func TestYankCopiesTheEntry(t *testing.T) {
 		t.Fatalf("y should copy once, got %d copies", len(*copied))
 	}
 	got := (*copied)[0]
-	for _, want := range []string{`"severity"`, `"ERROR"`, `"message"`, `"boom"`} {
+	for _, want := range []string{"severity: ERROR", "message: boom"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("copied text should contain %s:\n%s", want, got)
 		}
@@ -56,8 +56,8 @@ func TestYankCopiesPlainText(t *testing.T) {
 }
 
 // The pane's width is a display choice, so the whole entry is copied rather than
-// the clipped view.
-func TestYankCopiesTheWholeEntryNotTheClippedView(t *testing.T) {
+// the wrapped view.
+func TestYankCopiesTheWholeEntryNotTheWrappedView(t *testing.T) {
 	m, copied := yankModel(t, adapter.ParseLine([]byte(bigLogEntry)))
 	m, _ = key(m, "y")
 	got := (*copied)[0]
@@ -65,9 +65,9 @@ func TestYankCopiesTheWholeEntryNotTheClippedView(t *testing.T) {
 	if maxLineWidth(got) <= m.detail.Width {
 		t.Fatalf("fixture does not exceed the pane, nothing proved")
 	}
-	// The tail of the long userAgent is clipped on screen but must be copied.
-	if !strings.Contains(got, "Safari/537.36") {
-		t.Fatalf("copied text is missing content clipped off the pane:\n%s", got)
+	// The long userAgent is folded on screen but must be copied as one line.
+	if !strings.Contains(got, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36") {
+		t.Fatalf("copied text should hold the userAgent unfolded:\n%s", got)
 	}
 }
 

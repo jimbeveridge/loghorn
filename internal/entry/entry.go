@@ -73,6 +73,7 @@ type Entry struct {
 	Format        Format
 	Timestamp     time.Time // the log line's own timestamp (may be zero)
 	Received      time.Time // wall-clock time loghorn ingested the line
+	Seq           int       // ingestion order, 1-based; identifies an entry across a rebuilt row list even after the ring evicts older ones
 	Severity      Severity
 	HTTPStatus    int
 	Message       string
