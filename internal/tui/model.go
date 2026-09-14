@@ -76,8 +76,9 @@ type Model struct {
 	// down, so the bar can report what is waiting behind it.
 	heldRows, heldLines int
 
-	// The two view filters. They stack: with both on you see the failures within
-	// one request, which is the combination worth having.
+	// The view filters. They stack: with a and c both on you see the failures
+	// within one request, which is the combination worth having, and a find
+	// narrows whatever those two leave.
 	//
 	// showAll turns the failures filter off — every line is shown, failures still
 	// styled as such. pinned narrows the view to corrID; the empty id is a real
@@ -86,6 +87,15 @@ type Model struct {
 	showAll bool
 	pinned  bool
 	corrID  string
+
+	// find keeps only lines containing it, ignoring case; "" is off. findHits
+	// caches each entry's verdict for the current find, by Seq — see findMatches.
+	// finding is true while the '/' prompt is open, holding what has been typed so
+	// far in findInput. See find.go.
+	find      string
+	findHits  map[int]bool
+	finding   bool
+	findInput string
 
 	// notice is a one-shot message on the status bar, cleared by the next
 	// keystroke. Used where a key legitimately does nothing and silence would
@@ -173,7 +183,8 @@ func (m Model) onShade() bool { return m.selected >= len(m.rows) }
 // rebuild recomputes the visible rows from the ring through the active filters.
 // They stack: the correlation filter narrows the stream to one request, and the
 // failures filter then picks the important lines out of what is left — so both
-// on means "the failures in this request".
+// on means "the failures in this request". A find narrows the stream to lines
+// containing its text before the failures filter sees it.
 //
 // Everything that changes the row set goes through here, so the cursor and the
 // held window can be re-anchored in one place.
@@ -189,6 +200,9 @@ func (m Model) rebuild() Model {
 			}
 		}
 		entries = kept
+	}
+	if m.find != "" {
+		entries = m.findMatches(entries)
 	}
 	if m.showAll {
 		m.rows = BuildAll(entries)
@@ -554,8 +568,10 @@ func (m Model) helpContent() string {
 	head("Filtering")
 	row("a", "all lines / failures only")
 	row("c", "pin this line's request · again releases")
+	row("/ text enter", "find · / then enter clears")
 	note("a line with no id pins everything outside a request")
 	note("with a: the failures inside that request")
+	note("a find matches anywhere in the line, any case, and stacks too")
 
 	head("Inspecting")
 	row("enter", "open the pane · enter or esc closes")
@@ -643,6 +659,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// The find prompt owns the keyboard while it is open: everything typed is
+	// text, so a, c and q don't fire halfway through a word.
+	if m.finding {
+		return m.handleFindKey(msg)
+	}
+
 	// A notice lasts until the next keystroke, whatever that is.
 	m.notice = ""
 
@@ -656,6 +678,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.rebuild(), nil
 	case "c":
 		return m.toggleCorrelation(), nil
+	case "/":
+		return m.openFind(), nil
 	case "q", "ctrl+c":
 		return m.quit()
 	case "Q":
@@ -1024,6 +1048,10 @@ func (m Model) statusBar() string {
 			"loghorn %s · help · j/k scroll · esc close", m.spinner()))
 	}
 
+	if m.finding {
+		return m.findPrompt()
+	}
+
 	if m.showDetail {
 		pos := "all"
 		if !(m.detail.AtTop() && m.detail.AtBottom()) {
@@ -1078,6 +1106,9 @@ func (m Model) statusBar() string {
 		} else {
 			more += moreStyle.Render(" · id:" + shortID(m.corrID))
 		}
+	}
+	if m.find != "" {
+		more += moreStyle.Render(" · /" + shortFind(m.find))
 	}
 
 	// Mouse capture is state, not a hint, and only worth saying when it is off —

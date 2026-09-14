@@ -164,7 +164,7 @@ func TestHelpCoversEveryBinding(t *testing.T) {
 
 	for _, k := range []string{
 		"j", "k", "g", "G", "space", "pgdn", "pgup", "ctrl+d", "ctrl+u",
-		"a", "c", "enter", "y", "f", "Q", "m", "?", "q", "click", "wheel",
+		"a", "c", "/", "enter", "y", "f", "Q", "m", "?", "q", "click", "wheel",
 	} {
 		found := false
 		for b := range bindings {

@@ -276,7 +276,7 @@ func TestFiltersKeepTheCursorValid(t *testing.T) {
 // The frame invariant survives every filter combination.
 func TestFrameFitsUnderEveryFilter(t *testing.T) {
 	const h = 12
-	for _, keys := range [][]string{{}, {"a"}, {"k", "c"}, {"k", "c", "a"}} {
+	for _, keys := range [][]string{{}, {"a"}, {"k", "c"}, {"k", "c", "a"}, {"a", "/", "b", "o", "o", "m", "enter"}, {"/", "x"}} {
 		m := NewModel(nil, 1000)
 		m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: h})
 		m = m2.(Model)
