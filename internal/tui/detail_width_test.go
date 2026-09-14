@@ -168,7 +168,7 @@ func TestWidthIgnoresANSI(t *testing.T) {
 	e.Important = true
 	m := openOn(t, 120, 20, e)
 
-	coloured := renderDetail(m.detailEntry)
+	coloured := m.renderDetail()
 	if !strings.Contains(coloured, "\x1b[") {
 		t.Skip("lipgloss stripped colour in this environment; nothing to prove")
 	}

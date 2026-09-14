@@ -14,6 +14,7 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/buffer"
 	"github.com/jimbeveridge/loghorn/internal/clipboard"
 	"github.com/jimbeveridge/loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/sqlfmt"
 )
 
 type entryMsg entry.Entry
@@ -102,6 +103,12 @@ type Model struct {
 	detailEntry entry.Entry // the entry currently shown in the detail pane
 	detailW     int         // pane width, sized to the entry; see detailWidth
 
+	// sql holds the detail pane's formatted SQL statements, and formatSQL
+	// produces them — injectable, so tests don't wait on the real formatter.
+	// See sql.go.
+	sql       sqlCache
+	formatSQL func(string) (string, error)
+
 	// showHelp overlays the key reference. Keys you reach for rarely live here
 	// rather than on the status bar, which has to stay readable at a glance; the
 	// bar advertises '?' so they stay discoverable. It scrolls, so a short
@@ -152,6 +159,8 @@ func NewModel(ch <-chan entry.Entry, capacity int) Model {
 		lastClickRow: -1,
 		now:          time.Now,
 		copy:         clipboard.Copy,
+		sql:          sqlCache{},
+		formatSQL:    sqlfmt.Format,
 	}
 	// selected starts at 0 with no rows, which is already the shade: loghorn opens
 	// live.
@@ -264,6 +273,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		return m, nil
 
+	case sqlFormattedMsg:
+		m.sql[msg.stmt] = msg.text
+		if m.showDetail {
+			// Formatting changes the entry's widest line, so size the pane again.
+			// SetContent keeps the scroll position.
+			m.detailW = m.detailWidth()
+			m.detail.Width, m.detail.Height = m.detailDims()
+			m.detail.SetContent(m.wrappedDetail())
+		}
+		return m, nil
+
 	case childExitMsg:
 		// Stay open: a crash is exactly when the scrollback is worth reading.
 		m.childExited, m.childCode = true, msg.Code
@@ -311,10 +331,11 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m = m.setSelected(row) // clicking a row pulls the shade down
 		// Double-click opens the pane; a single click while it is already open
 		// re-targets it at the row just clicked.
+		var cmd tea.Cmd
 		if double || m.showDetail {
-			m = m.openDetail()
+			m, cmd = m.openDetail()
 		}
-		return m, nil
+		return m, cmd
 	}
 	return m, nil
 }
@@ -343,7 +364,7 @@ func (m Model) toggleCorrelation() Model {
 // the whole entry unwrapped, not the folded view: the pane's width is a display choice,
 // not a decision about what you meant to take.
 func (m Model) yank() Model {
-	text := plainDetail(m.detailEntry)
+	text := m.plainDetail()
 	if err := m.copy(text); err != nil {
 		m.notice = "clipboard: " + err.Error()
 		return m
@@ -354,12 +375,7 @@ func (m Model) yank() Model {
 
 // plainDetail is renderDetail without the colour, for anywhere the text leaves
 // the terminal.
-func plainDetail(e entry.Entry) string {
-	if e.JSON != nil {
-		return RenderYAML(e.JSON, true)
-	}
-	return string(e.Raw)
-}
+func (m Model) plainDetail() string { return m.detailText(true) }
 
 func plural(n int, unit string) string {
 	if n == 1 {
@@ -580,9 +596,10 @@ func (m Model) helpHeight() int {
 
 // openDetail points the detail pane at the selected row and shows it. With the
 // cursor on the handle there is no selected row, so the newest one is inspected.
-func (m Model) openDetail() Model {
+// The command formats the entry's SQL statements, if it has any not yet done.
+func (m Model) openDetail() (Model, tea.Cmd) {
 	if len(m.rows) == 0 {
-		return m
+		return m, nil
 	}
 	i := m.selected
 	if i >= len(m.rows) {
@@ -594,7 +611,7 @@ func (m Model) openDetail() Model {
 	m.detail.SetContent(m.wrappedDetail())
 	m.detail.GotoTop()
 	m.showDetail = true
-	return m
+	return m, m.formatSQLCmd(m.detailEntry)
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -680,7 +697,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// List mode.
 	switch msg.String() {
 	case "enter":
-		m = m.openDetail()
+		return m.openDetail()
 	case " ":
 		// Toggle: off the handle holds the shade at the newest row, back on it
 		// goes live.
@@ -733,7 +750,7 @@ func (m Model) detailWidth() int {
 	if max < 1 {
 		max = 1 // absurdly narrow terminal; degrade rather than go negative
 	}
-	w := maxLineWidth(renderDetail(m.detailEntry))
+	w := maxLineWidth(m.renderDetail())
 	if w > max {
 		w = max
 	}
@@ -769,11 +786,16 @@ func (m Model) detailDims() (w, h int) {
 	return w, h
 }
 
-func renderDetail(e entry.Entry) string {
-	if e.JSON != nil {
-		return RenderYAML(e.JSON, false)
+// renderDetail renders the inspected entry coloured and unwrapped, with its SQL
+// statements as far formatted as they have got.
+func (m Model) renderDetail() string { return m.detailText(false) }
+
+func (m Model) detailText(plain bool) string {
+	e := m.detailEntry
+	if e.JSON == nil {
+		return string(e.Raw)
 	}
-	return string(e.Raw)
+	return renderYAML(e.JSON, yamlOpts{plain: plain, sql: m.sql.text})
 }
 
 // wrappedDetail renders the inspected entry and folds any line wider than the
@@ -784,7 +806,7 @@ func renderDetail(e entry.Entry) string {
 // fold whenever that cap moves — on open and on every resize.
 func (m Model) wrappedDetail() string {
 	w, _ := m.detailDims()
-	lines := strings.Split(renderDetail(m.detailEntry), "\n")
+	lines := strings.Split(m.renderDetail(), "\n")
 	for i, ln := range lines {
 		lines[i] = wrapLine(ln, w)
 	}

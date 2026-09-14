@@ -29,7 +29,7 @@ func openBig(t *testing.T, w int) Model {
 // and none of the text is lost off the right edge.
 func TestDetailWrapsLongLines(t *testing.T) {
 	m := openBig(t, 120)
-	raw := renderDetail(m.detailEntry)
+	raw := m.renderDetail()
 
 	// Precondition: the content really is wider than the pane, or the test
 	// proves nothing.
@@ -87,7 +87,7 @@ func TestWrapDropsIndentWhenTooDeep(t *testing.T) {
 // widening past the content unfolds it back to the source lines.
 func TestWrapFollowsResize(t *testing.T) {
 	m := openBig(t, 120)
-	src := strings.Count(renderDetail(m.detailEntry), "\n") + 1
+	src := strings.Count(m.renderDetail(), "\n") + 1
 	at120 := m.detail.TotalLineCount()
 
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 40})
