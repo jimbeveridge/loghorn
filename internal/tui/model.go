@@ -38,15 +38,6 @@ type Child interface {
 	Name() string
 }
 
-var (
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	impStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236"))
-	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	moreStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	tsStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-)
-
 // tsLayout formats the per-line ingest time as HH:MM:SS.mmm (no date).
 const tsLayout = "15:04:05.000"
 
@@ -547,12 +538,6 @@ func (m Model) scrollToCursor() Model {
 	return m
 }
 
-var (
-	helpHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	helpKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	helpNoteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-)
-
 // helpKeyWidth is the key column. Wide enough for "ctrl+d / ctrl+u", the longest
 // binding — anything narrower and it collides with its own description.
 const helpKeyWidth = 18
@@ -782,8 +767,6 @@ const (
 	detailDivider = "│"
 	detailChrome  = 2 // the divider column plus the margin column
 )
-
-var dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
 // detailWidth is the width the pane wants: its longest line, so content that
 // fits is shown unwrapped, capped so the list keeps detailReserve columns.

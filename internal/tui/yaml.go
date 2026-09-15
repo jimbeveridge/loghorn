@@ -10,14 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	keyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))  // blue
-	strStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))   // green
-	numStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // orange
-	boolStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")) // magenta-ish
-	nullStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // gray
-)
-
 // yamlOpts is what the YAML writers share beyond the value itself.
 type yamlOpts struct {
 	plain bool // suppress all colour

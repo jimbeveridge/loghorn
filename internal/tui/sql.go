@@ -21,11 +21,6 @@ import (
 // each clause and select item on its own line. A resize re-wraps whatever is
 // still too wide and never reformats.
 
-var (
-	sqlKeywordStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("141")) // purple
-	sqlTypeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))  // cyan
-)
-
 // Generic SQL: loghorn doesn't know which database wrote the statement.
 var sqlLexer = chroma.Coalesce(lexers.Get("sql"))
 

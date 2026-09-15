@@ -3,6 +3,7 @@ package tui
 import (
 	"math"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
@@ -94,3 +95,62 @@ func pick(base colorful.Color, target float64, bg, sel colorful.Color) colorful.
 }
 
 func clamp01(x float64) float64 { return math.Max(0, math.Min(1, x)) }
+
+// The styles every view draws with. They are assigned only by SetBackground;
+// package init resolves them for a black terminal, so code that never calls it —
+// tests, and anything drawn before main does — sees today's colours.
+var (
+	dimStyle, impStyle, selStyle, statusStyle, moreStyle, tsStyle lipgloss.Style
+	helpHeadStyle, helpKeyStyle, helpNoteStyle                    lipgloss.Style
+	dividerStyle                                                  lipgloss.Style
+	keyStyle, strStyle, numStyle, boolStyle, nullStyle            lipgloss.Style
+	sqlKeywordStyle, sqlTypeStyle                                 lipgloss.Style
+)
+
+// Role base colours: the 256-colour picks loghorn has always used, as hex, tuned
+// for a dark terminal. Styles that shared a colour share a role.
+var (
+	accentBase     = hexColor("#00afff") // 39: status bar, help headings, keys
+	attentionBase  = hexColor("#ffaf00") // 214: bar notes, help keys, numbers
+	importantBase  = hexColor("#ff5f5f") // 203
+	dimBase        = hexColor("#8a8a8a") // 245, and 244 one step away
+	ruleBase       = hexColor("#585858") // 240: the detail pane's divider
+	stringBase     = hexColor("#5faf5f") // 71; was ANSI 2, whose shade the terminal theme decides
+	booleanBase    = hexColor("#ff87d7") // 212
+	sqlKeywordBase = hexColor("#af87ff") // 141
+	sqlTypeBase    = hexColor("#5fd7ff") // 81
+)
+
+func hexColor(s string) colorful.Color {
+	c, err := colorful.Hex(s)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+func init() { SetBackground(black) }
+
+// SetBackground recomputes every style for a terminal whose background is bg. The
+// styles are plain package variables, so call it before the program starts
+// rendering.
+func SetBackground(bg colorful.Color) {
+	sel := selectionFor(bg)
+	fg := func(base colorful.Color, target float64) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(pick(base, target, bg, sel).Hex()))
+	}
+	accent := fg(accentBase, textContrast)
+	attention := fg(attentionBase, textContrast)
+	dim := fg(dimBase, textContrast)
+
+	statusStyle, helpHeadStyle, keyStyle = accent, accent.Bold(true), accent
+	moreStyle, helpKeyStyle, numStyle = attention.Bold(true), attention, attention
+	dimStyle, helpNoteStyle, nullStyle, tsStyle = dim, dim, dim, dim
+	impStyle = fg(importantBase, textContrast).Bold(true)
+	dividerStyle = fg(ruleBase, ruleContrast)
+	strStyle = fg(stringBase, textContrast)
+	boolStyle = fg(booleanBase, textContrast)
+	sqlKeywordStyle = fg(sqlKeywordBase, textContrast)
+	sqlTypeStyle = fg(sqlTypeBase, textContrast)
+	selStyle = lipgloss.NewStyle().Background(lipgloss.Color(sel.Hex()))
+}
