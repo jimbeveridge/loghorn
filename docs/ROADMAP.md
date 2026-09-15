@@ -174,7 +174,12 @@ Shipped after v0 in response to real use:
   theme's ANSI green; timestamps move from 244 to the dim role's 245, one step and
   indistinguishable; the divider is lightened slightly and the selected row is subtler, both
   derived from the background. On a 256-colour terminal each colour is judged as the palette index
-  it will be drawn with. See
+  it will be drawn with. The attention role (help keys, JSON numbers, bar notes) targets 3:1
+  instead — WCAG's threshold for bold or large text — and on a light background is bold; 4.5:1
+  forced it to a near-black brown on the user's `#cee8be` terminal, leaving almost no
+  differentiation. On a light background the log list's non-failure rows also drop their dim-grey
+  colour entirely, falling back to the terminal's own (typically black) text, after the same user
+  found the dim grey washed out and asked for a strong black there. See
   [the spec](superpowers/specs/2026-09-15-adaptive-palette-design.md).
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —

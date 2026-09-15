@@ -51,6 +51,20 @@ func textStyles() map[string]lipgloss.Style {
 	}
 }
 
+// styleTargets is each style's contrast target, keyed the same as textStyles.
+// Every style defaults to WCAG's normal-text 4.5:1; the attention role
+// (helpKeyStyle, numStyle, moreStyle) targets accentContrast, 3:1, the
+// bold/large-text threshold, because those styles are short bold tokens on a
+// light background.
+func styleTargets() map[string]float64 {
+	targets := make(map[string]float64, len(textStyles()))
+	for name := range textStyles() {
+		targets[name] = textContrast
+	}
+	targets["helpKey"], targets["num"], targets["more"] = accentContrast, accentContrast, accentContrast
+	return targets
+}
+
 // colourOf reads a lipgloss colour as the colour a terminal shows: a 256-colour
 // index is looked up in the xterm table, anything else is parsed as hex.
 func colourOf(t *testing.T, name string, tc lipgloss.TerminalColor) colorful.Color {
@@ -97,9 +111,19 @@ func TestSetBackgroundMakesEveryStyleReadable(t *testing.T) {
 		if got, want := selStyle.GetBackground(), lipgloss.Color(sel.Hex()); got != want {
 			t.Errorf("on %s selStyle background = %v, want %v", bgHex, got, want)
 		}
+		targets := styleTargets()
 		for name, s := range textStyles() {
-			if c := worstContrast(fgOf(t, name, s), bg, sel); c < textContrast {
-				t.Errorf("on %s %sStyle reaches only %.2f", bgHex, name, c)
+			if name == "dim" && isLight(bg) {
+				// On a light background dimStyle carries no foreground at all — the
+				// terminal's own text colour, not a role colour — so there is no
+				// contrast to check here; TestAttentionTargetsThreeToOne covers it.
+				if got := s.GetForeground(); got != (lipgloss.NoColor{}) {
+					t.Errorf("on %s dimStyle foreground = %#v, want NoColor", bgHex, got)
+				}
+				continue
+			}
+			if c := worstContrast(fgOf(t, name, s), bg, sel); c < targets[name] {
+				t.Errorf("on %s %sStyle reaches only %.2f, want %.1f", bgHex, name, c, targets[name])
 			}
 		}
 		if c := worstContrast(fgOf(t, "divider", dividerStyle), bg, sel); c < ruleContrast {
@@ -130,12 +154,19 @@ func TestSetBackgroundReadableOnANSI256(t *testing.T) {
 				bgHex, selIdx, sel.Hex(), c, selectionVisible)
 		}
 
+		targets := styleTargets()
 		for name, s := range textStyles() {
+			if name == "dim" && isLight(bg) {
+				if got := s.GetForeground(); got != (lipgloss.NoColor{}) {
+					t.Errorf("on %s dimStyle foreground = %#v, want NoColor", bgHex, got)
+				}
+				continue
+			}
 			i := indexOf(t, name+"Style foreground", s.GetForeground())
 			fg := termenv.ConvertToRGB(termenv.ANSI256Color(i))
-			if c := worstContrast(fg, bg, sel); c < textContrast {
-				t.Errorf("on %s %sStyle = %d (%s) reaches only %.2f against the background and selection %d",
-					bgHex, name, i, fg.Hex(), c, selIdx)
+			if c := worstContrast(fg, bg, sel); c < targets[name] {
+				t.Errorf("on %s %sStyle = %d (%s) reaches only %.2f against the background and selection %d, want %.1f",
+					bgHex, name, i, fg.Hex(), c, selIdx, targets[name])
 			}
 		}
 		i := indexOf(t, "dividerStyle foreground", dividerStyle.GetForeground())
@@ -199,18 +230,32 @@ func TestSelectionKeepsBackgroundHue(t *testing.T) {
 	}
 }
 
-// Resolving colours must not change which styles are bold.
+// Resolving colours must not change which styles are bold, except that on a
+// light background helpKeyStyle and numStyle join the attention role's
+// moreStyle in being bold — WCAG's 3:1 attention target is the bold/large-text
+// threshold, so those two must actually be bold to claim it (ruling 2).
 func TestSetBackgroundKeepsBold(t *testing.T) {
 	t.Cleanup(func() { SetBackground(black) })
+
 	SetBackground(mustHex(t, "#cee8be"))
-	for name, s := range map[string]lipgloss.Style{"imp": impStyle, "more": moreStyle, "helpHead": helpHeadStyle} {
+	for name, s := range map[string]lipgloss.Style{
+		"imp": impStyle, "more": moreStyle, "helpHead": helpHeadStyle,
+		"helpKey": helpKeyStyle, "num": numStyle,
+	} {
 		if !s.GetBold() {
-			t.Errorf("%sStyle lost its bold", name)
+			t.Errorf("on a light background %sStyle lost its bold", name)
 		}
 	}
+	for name, s := range map[string]lipgloss.Style{"status": statusStyle, "key": keyStyle} {
+		if s.GetBold() {
+			t.Errorf("on a light background %sStyle became bold", name)
+		}
+	}
+
+	SetBackground(mustHex(t, "#1e1e1e"))
 	for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "status": statusStyle, "key": keyStyle, "dim": dimStyle} {
 		if s.GetBold() {
-			t.Errorf("%sStyle became bold", name)
+			t.Errorf("on a dark background %sStyle became bold", name)
 		}
 	}
 }
@@ -262,6 +307,98 @@ func TestSelectionStopsWhenVisible(t *testing.T) {
 	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254", "#000055": "54"} {
 		if _, got := showSelection(mustHex(t, bgHex), ansi256); got != want {
 			t.Errorf("on %s the 256-colour selection = %s, want %s", bgHex, got, want)
+		}
+	}
+}
+
+// On a light terminal, the attention role (helpKeyStyle, numStyle, moreStyle)
+// targets accentContrast rather than textContrast: those are short bold tokens,
+// and WCAG's 4.5:1 forced them to #714b00, a near-black brown that erased the
+// differentiation the colour was for. At 3:1 they land lighter, still an amber,
+// while keeping the base's hue. dimStyle instead loses its foreground entirely
+// on a light background, so the list's context rows render in the terminal's
+// own (typically black) text rather than the dim role's grey.
+func TestAttentionTargetsThreeToOne(t *testing.T) {
+	useProfile(t, termenv.TrueColor)
+	bg := mustHex(t, "#cee8be")
+	SetBackground(bg)
+	sel := selectionFor(bg)
+
+	fourFive, _ := pick(attentionBase, textContrast, bg, sel, trueColor)
+	baseH, _, _ := attentionBase.Hcl()
+	for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "more": moreStyle} {
+		got := fgOf(t, name, s)
+		if c := worstContrast(got, bg, sel); c < accentContrast {
+			t.Errorf("%sStyle on #cee8be reaches only %.2f, want %.1f", name, c, accentContrast)
+		}
+		if luminance(got) <= luminance(fourFive) {
+			t.Errorf("%sStyle on #cee8be = %s, want lighter than the old 4.5-target result %s", name, got.Hex(), fourFive.Hex())
+		}
+		gotH, _, _ := got.Hcl()
+		if diff := hueDiff(baseH, gotH); diff > 1 {
+			t.Errorf("%sStyle on #cee8be hue %.1f is %.1f° from attentionBase's %.1f, want within 1°", name, gotH, diff, baseH)
+		}
+		if !s.GetBold() {
+			t.Errorf("%sStyle on #cee8be should be bold", name)
+		}
+	}
+
+	if got := dimStyle.GetForeground(); got != (lipgloss.NoColor{}) {
+		t.Errorf("dimStyle on #cee8be foreground = %#v, want NoColor", got)
+	}
+	for name, s := range map[string]lipgloss.Style{"ts": tsStyle, "helpNote": helpNoteStyle, "null": nullStyle} {
+		got := fgOf(t, name, s)
+		if c := worstContrast(got, bg, sel); c < textContrast {
+			t.Errorf("%sStyle on #cee8be reaches only %.2f, want %.1f", name, c, textContrast)
+		}
+	}
+}
+
+// On dark backgrounds nothing changes: the attention base already exceeds 3:1
+// (and did 4.5:1), so pick returns it unmodified, helpKeyStyle and numStyle
+// stay non-bold, and dimStyle keeps the dim role's foreground rather than
+// losing it (ruling 3 is light-background only).
+func TestAttentionUnchangedOnDark(t *testing.T) {
+	useProfile(t, termenv.TrueColor)
+	for _, bgHex := range []string{"#000000", "#1e1e1e"} {
+		bg := mustHex(t, bgHex)
+		SetBackground(bg)
+
+		for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "more": moreStyle} {
+			if got := fgOf(t, name, s); got.Hex() != attentionBase.Hex() {
+				t.Errorf("on %s %sStyle = %s, want unchanged base %s", bgHex, name, got.Hex(), attentionBase.Hex())
+			}
+		}
+		if helpKeyStyle.GetBold() {
+			t.Errorf("on %s helpKeyStyle should not be bold", bgHex)
+		}
+		if numStyle.GetBold() {
+			t.Errorf("on %s numStyle should not be bold", bgHex)
+		}
+		if got, want := fgOf(t, "dim", dimStyle), fgOf(t, "helpNote", helpNoteStyle); got.Hex() != want.Hex() {
+			t.Errorf("on %s dimStyle = %s, want the dim role's colour %s", bgHex, got.Hex(), want.Hex())
+		}
+	}
+}
+
+// On a 256-colour terminal the attention role's 3:1 target resolves to index
+// 94 (#875f00) on #cee8be, an amber the cube can show, rather than 236, the
+// near-black grey the old 4.5:1 target picked.
+func TestAttentionANSI256ReachesThreeToOne(t *testing.T) {
+	useProfile(t, termenv.ANSI256)
+	bg := mustHex(t, "#cee8be")
+	SetBackground(bg)
+	selIdx := indexOf(t, "selStyle background", selStyle.GetBackground())
+	sel := termenv.ConvertToRGB(termenv.ANSI256Color(selIdx))
+
+	for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "more": moreStyle} {
+		idx := indexOf(t, name+"Style foreground", s.GetForeground())
+		if idx != 94 {
+			t.Errorf("%sStyle on #cee8be (ANSI256) = index %d, want 94", name, idx)
+		}
+		fg := termenv.ConvertToRGB(termenv.ANSI256Color(idx))
+		if c := worstContrast(fg, bg, sel); c < accentContrast {
+			t.Errorf("%sStyle on #cee8be (ANSI256) reaches only %.2f, want %.1f", name, c, accentContrast)
 		}
 	}
 }

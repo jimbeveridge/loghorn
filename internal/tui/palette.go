@@ -24,6 +24,12 @@ const (
 	// ruleContrast is WCAG's threshold for non-text: the detail pane's divider is a
 	// line to see, not something to read.
 	ruleContrast = 3.0
+	// accentContrast is WCAG's threshold for bold or large text, not the 4.5:1
+	// normal-text threshold. The attention role's styles (help keys, JSON
+	// numbers, bar notes) are short tokens, bold on light backgrounds (see
+	// SetBackground); holding them to 4.5:1 forced a near-black brown on a light
+	// terminal, leaving almost no differentiation from the surrounding text.
+	accentContrast = 3.0
 	// lightLuminance is where black and white text contrast equally with a
 	// background, (L+0.05)/0.05 = 1.05/(L+0.05). Above it, text should be darker.
 	lightLuminance = 0.179
@@ -306,12 +312,25 @@ func SetBackground(bg colorful.Color) {
 		return lipgloss.NewStyle().Foreground(name)
 	}
 	accent := fg(accentBase, textContrast)
-	attention := fg(attentionBase, textContrast)
+	attention := fg(attentionBase, accentContrast)
 	dim := fg(dimBase, textContrast)
 
 	statusStyle, helpHeadStyle, keyStyle = accent, accent.Bold(true), accent
-	moreStyle, helpKeyStyle, numStyle = attention.Bold(true), attention, attention
-	dimStyle, helpNoteStyle, nullStyle, tsStyle = dim, dim, dim, dim
+	moreStyle = attention.Bold(true)
+	helpNoteStyle, nullStyle, tsStyle = dim, dim, dim
+	if isLight(bg) {
+		// A light terminal's help keys and numbers are held to 3:1, not 4.5
+		// (accentContrast, above), so they must actually be bold to claim WCAG's
+		// bold/large-text threshold. The list's context rows lose dimStyle's
+		// foreground altogether here: the user found the dim grey washed out on a
+		// light background and wanted the terminal's own (typically black) text
+		// instead, which is what an unstyled render falls back to.
+		helpKeyStyle, numStyle = attention.Bold(true), attention.Bold(true)
+		dimStyle = lipgloss.NewStyle()
+	} else {
+		helpKeyStyle, numStyle = attention, attention
+		dimStyle = dim
+	}
 	impStyle = fg(importantBase, textContrast).Bold(true)
 	dividerStyle = fg(ruleBase, ruleContrast)
 	strStyle = fg(stringBase, textContrast)
