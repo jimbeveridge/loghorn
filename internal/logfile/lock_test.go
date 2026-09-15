@@ -38,7 +38,10 @@ func TestAcquireReplacesPreviousPID(t *testing.T) {
 	}
 	defer f.Close()
 
-	b, _ := os.ReadFile(filepath.Join(dir, lockName))
+	b, err := os.ReadFile(filepath.Join(dir, lockName))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, want := strings.TrimSpace(string(b)), strconv.Itoa(os.Getpid()); got != want {
 		t.Fatalf("lock file holds %q, want pid %q", got, want)
 	}
@@ -95,6 +98,20 @@ func TestAcquireUnreadablePIDIsZero(t *testing.T) {
 	var locked *LockedError
 	if !errors.As(err, &locked) || locked.PID != 0 {
 		t.Fatalf("want *LockedError with PID 0, got %v", err)
+	}
+}
+
+// A directory that doesn't exist fails the open itself; that must never be
+// mistaken for another loghorn holding the lock.
+func TestAcquireOnMissingDirIsNotLockedError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	_, err := acquire(dir)
+	if err == nil {
+		t.Fatalf("acquire on a missing directory should fail")
+	}
+	var locked *LockedError
+	if errors.As(err, &locked) {
+		t.Fatalf("an open failure must not read as *LockedError, got %v", err)
 	}
 }
 

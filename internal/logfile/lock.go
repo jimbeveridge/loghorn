@@ -60,18 +60,20 @@ func acquire(dir string) (*os.File, error) {
 	}
 	if err := f.Truncate(0); err != nil {
 		f.Close()
-		return nil, err
+		return nil, fmt.Errorf("truncating %s: %w", f.Name(), err)
 	}
 	if _, err := f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0); err != nil {
 		f.Close()
-		return nil, err
+		return nil, fmt.Errorf("writing pid to %s: %w", f.Name(), err)
 	}
 	return f, nil
 }
 
-// readPID reads the holder's PID from a just-opened lock file, or 0.
+// readPID reads the holder's PID from a just-opened lock file, or 0. The read
+// is capped at 32 bytes; a PID never needs more, and a truncated read fails
+// Atoi below, which returns the same 0 fallback as any other unreadable PID.
 func readPID(f *os.File) int {
-	b, err := io.ReadAll(f)
+	b, err := io.ReadAll(io.LimitReader(f, 32))
 	if err != nil {
 		return 0
 	}
