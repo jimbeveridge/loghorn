@@ -110,16 +110,21 @@ func TestSetBackgroundMakesEveryStyleReadable(t *testing.T) {
 
 // On a 256-colour terminal the colours the terminal actually shows — indices, not
 // the hex values they approximate — read on the background and on the selected
-// row, and the selected row is still a different colour from the background.
+// row, and the selected row stays visible against the background the terminal
+// really draws. #d7ffaf is itself an index, 193, which the nudge must step past.
 func TestSetBackgroundReadableOnANSI256(t *testing.T) {
 	useProfile(t, termenv.ANSI256)
-	for _, bgHex := range []string{"#000000", "#1e1e1e", "#ffffff", "#cee8be", "#fdf6e3"} {
+	for _, bgHex := range []string{"#000000", "#1e1e1e", "#ffffff", "#cee8be", "#fdf6e3", "#d7ffaf"} {
 		bg := mustHex(t, bgHex)
 		SetBackground(bg)
 		selIdx := indexOf(t, "selStyle background", selStyle.GetBackground())
 		sel := termenv.ConvertToRGB(termenv.ANSI256Color(selIdx))
-		if bgIdx := nearestIndex(bg); selIdx == bgIdx {
-			t.Errorf("on %s the selection is index %d, the background's own nearest index: the selected row vanishes", bgHex, selIdx)
+		if darker := luminance(sel) < luminance(bg); darker != isLight(bg) {
+			t.Errorf("on %s the selection %d (%s) moved away from the text direction", bgHex, selIdx, sel.Hex())
+		}
+		if c := contrast(sel, bg); c < selectionVisible {
+			t.Errorf("on %s the selection %d (%s) shows at only %.2f:1 against the background, want %.1f",
+				bgHex, selIdx, sel.Hex(), c, selectionVisible)
 		}
 
 		for name, s := range textStyles() {
@@ -219,5 +224,16 @@ func TestDefaultPaletteIsTodaysColours(t *testing.T) {
 	}
 	if c := worstContrast(divider, black, sel); c < ruleContrast {
 		t.Errorf("dividerStyle at init = %s reaches only %.2f, want %.1f", divider.Hex(), c, ruleContrast)
+	}
+}
+
+// The selection is nudged no further than it must be. On #cee8be index 151 already
+// shows at 1.21:1, level with the truecolor selection; pushing on to 108 darkened
+// the row enough to cost four roles their colour.
+func TestSelectionStopsWhenVisible(t *testing.T) {
+	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254"} {
+		if _, got := showSelection(mustHex(t, bgHex), ansi256); got != want {
+			t.Errorf("on %s the 256-colour selection = %s, want %s", bgHex, got, want)
+		}
 	}
 }

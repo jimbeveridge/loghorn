@@ -33,15 +33,16 @@ wait out the timeout.
 
 In TUI mode only, `main.go` asks for the background after the flags are validated and
 before `tea.NewProgram`: `termenv.NewOutput(os.Stdout).BackgroundColor()`, converted to
-RGB. The reply arrives on the terminal loghorn draws on, not on stdin, so a piped
-producer doesn't interfere. It must happen before Bubble Tea starts reading `/dev/tty`,
-or the reply would be read as keystrokes.
+RGB. The reply arrives on the terminal loghorn draws on, not on stdin, so loghorn's own
+stdin — the pipe carrying logs — doesn't interfere. It must happen before Bubble Tea starts
+reading `/dev/tty`, or the reply would be read as keystrokes.
 
 - No reply (the terminal doesn't support OSC 11), or no query at all (inside tmux or screen,
   below): termenv
   falls back to the `COLORFGBG` environment variable, and failing that to black. loghorn
   uses whatever termenv returns — there is no separate "no reply" signal to act on — so an
-  unanswered query yields the palette for `#000000`, which is today's look.
+  unanswered query yields the palette for `#000000`: text in its usual colours except
+  strings, which use a fixed green; a slightly lighter divider; and a subtler selected row.
 - `--filter` never asks: it writes no colour.
 
 ### `--theme`
@@ -112,10 +113,13 @@ colour at that lightness.
    8 bits a channel. On a 256-colour terminal it is the nearest xterm index from 16 to 255
    by CIE Lab distance — 0–15 are the theme's own colours, which loghorn doesn't know — so
    the selection background and every candidate are quantised before their contrast is
-   judged. If the selection quantises to the index nearest the background itself, its
-   nudge continues in 0.02 steps until it doesn't: on `#cee8be` the selection is 108
-   `#87af87` rather than 151. The background is never quantised; the terminal draws it
-   exactly.
+   judged. The selection's nudge continues in 0.02 steps until the colour shown is on the
+   text side of the real background and contrasts with it by at least 1.1:1. Truecolor
+   selections measure 1.18–1.31:1, so 1.1 allows for quantisation while keeping the row
+   visible. On `#cee8be` the first nudge already qualifies, 151 `#afd7af` at 1.21:1; on
+   `#d7ffaf`, itself index 193, the nudge steps on to 150. The background is never
+   quantised: the terminal draws it exactly, so visibility is judged against it, not
+   against its nearest index.
 
 Checking against the selection background as well matters because the status bar and the
 selected row are drawn on it: the bar's own text is `accent`, and a selected important
@@ -138,7 +142,8 @@ func SetBackground(bg colorful.Color)
 It reassigns the existing package-level style variables, so no rendering code changes.
 `main.go` calls it once, before `tui.NewModel`; nothing renders concurrently at that
 point. The package's own initialisation calls it with `#000000`, so tests and any code
-that never calls `SetBackground` get the dark palette they get today. The 17 style
+that never calls `SetBackground` get the dark palette: text colours as before except
+strings, a slightly lighter divider and a subtler selected row. The 17 style
 variables move into `palette.go`, so one file declares and assigns them all.
 
 The palette is resolved for lipgloss's colour profile, which lipgloss reads from the
@@ -165,10 +170,11 @@ the search has no profile branches of its own.
   hue. Near-grey results are skipped: their hue is undefined.
 - **256 colours:** the quantiser maps every xterm colour from 16 to 255 to its own index
   (`#000000`→16, `#ffffff`→231, `#303030`→236, `#5faf5f`→71, `#00afff`→39) and never
-  returns 0–15. Under the ANSI256 profile, on `#000000`, `#1e1e1e`, `#ffffff`, `#cee8be` and
-  `#fdf6e3`, every style names an index from 16 to 255 whose colour reaches its target
-  against the background and the selection's index, and the selection's index isn't the one
-  nearest the background. Tests that care about the profile set it and restore it, so they
+  returns 0–15. Under the ANSI256 profile, on `#000000`, `#1e1e1e`, `#ffffff`, `#cee8be`,
+  `#fdf6e3` and `#d7ffaf`, every style names an index from 16 to 255 whose colour reaches its
+  target against the background and the selection's index, and the selection's colour is on
+  the text side of the background at 1.1:1 or more. The selection stops at the first nudge
+  that qualifies: 151 on `#cee8be`, 234 on `#000000`, 254 on `#ffffff`. Tests that care about the profile set it and restore it, so they
   don't depend on the environment.
 - **Every style is wired to its role:** at package init each of the 15 text styles is its
   role's base colour, and the divider is lightened from its base to reach 3:1.
@@ -195,9 +201,10 @@ the search has no profile branches of its own.
   because loghorn quantises each colour itself and judges the index. It does not hold on a
   16-colour terminal, where lipgloss maps each colour to one of the terminal's own 16, whose
   shades loghorn doesn't know.
-- On 256 colours hue is only approximate. The cube has no shades between 0 and 95 a
-  channel, so on a tinted light background, where text must be dark, several roles can
-  resolve to the same dark grey.
+- On 256 colours hue is only approximate, and roles can share an index. The cube has no
+  chromatic levels between 0 and 95 a channel, so where text must be dark there are few
+  shades to choose from: accent and attention are both 236, a grey, on `#cee8be`, and
+  accent and sqlType are both 24 on `#ffffff` and `#fdf6e3`.
 - The background is read once. Switching the terminal between light and dark themes while
   loghorn runs keeps the palette it started with; restart it.
 - Inside tmux or screen termenv doesn't send the query at all — it skips it whenever `TERM`

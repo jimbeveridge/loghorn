@@ -34,6 +34,11 @@ const (
 	// lightnessStep is the stride of the search for a readable shade; 50 strides
 	// cover the whole lightness range.
 	lightnessStep = 0.02
+	// selectionVisible is the least contrast the selected row's background keeps
+	// with the terminal's. Truecolor selections measure 1.18–1.31:1; 1.1 leaves room
+	// for a 256-colour index landing a little nearer the background, while still
+	// guaranteeing the row can be seen.
+	selectionVisible = 1.1
 )
 
 var (
@@ -160,16 +165,18 @@ func nearestIndex(c colorful.Color) int {
 }
 
 // showSelection is the selection as d shows it. A 256-colour index is coarse, and
-// the nudge can land on the very index nearest the background — it does on
-// #cee8be — which would hide the selected row; so the nudge goes on, a lightness
-// step at a time, until the terminal would draw something else. Fifty steps reach
-// black or white, which no background on the other side of lightLuminance is
-// nearest to.
+// the nudge can land on an index that looks almost like the background, which
+// would hide the selected row; so the nudge goes on, a lightness step at a time,
+// until what the terminal draws is on the text side of the background and at
+// least selectionVisible from it. The background is judged as itself, not as its
+// nearest index: the terminal draws it exactly. Fifty steps reach black or white,
+// which contrast with any background on the other side of lightLuminance by more
+// than 4:1, so the bound is never what ends the loop.
 func showSelection(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
-	_, bgName := d(bg)
 	for i := 0; ; i++ {
 		shown, name := d(nudge(bg, selectionShift+lightnessStep*float64(i)))
-		if name != bgName || i == 50 {
+		towardText := (luminance(shown) < luminance(bg)) == isLight(bg)
+		if towardText && contrast(shown, bg) >= selectionVisible || i == 50 {
 			return shown, name
 		}
 	}
