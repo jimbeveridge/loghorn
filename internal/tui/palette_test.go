@@ -354,19 +354,33 @@ func TestAttentionTargetsThreeToOne(t *testing.T) {
 	}
 }
 
-// On dark backgrounds nothing changes: the attention base already exceeds 3:1
-// (and did 4.5:1), so pick returns it unmodified, helpKeyStyle and numStyle
-// stay non-bold, and dimStyle keeps the dim role's foreground rather than
-// losing it (ruling 3 is light-background only).
+// On dark backgrounds nothing changes, including ones far from black:
+// accentContrast (3:1) only ever applies when isLight(bg), so attention
+// resolves at textContrast (4.5:1) exactly as it did at 62c4d1e, helpKeyStyle
+// and numStyle stay non-bold (moreStyle stays bold, as it always was), and
+// dimStyle keeps the dim role's foreground rather than losing it (ruling 3 is
+// light-background only). The three non-black backgrounds below are where a
+// prior fix-round conflated "3:1 target" with "isLight" and applied 3:1 even
+// here, leaving non-bold text under 4.5:1 (e.g. #ffaf00 on #3b4252 measured
+// 4.05, not the 4.54 that #ffbe5b — what 62c4d1e actually resolved to —
+// reaches). The expected hexes are pinned to values measured directly against
+// 62c4d1e, not recomputed here, so this test can't drift with the production
+// code it's guarding.
 func TestAttentionUnchangedOnDark(t *testing.T) {
 	useProfile(t, termenv.TrueColor)
-	for _, bgHex := range []string{"#000000", "#1e1e1e"} {
+	want := map[string]string{
+		"#000000": "#ffaf00", "#1e1e1e": "#ffaf00",
+		"#3b4252": "#ffbe5b", // Nord's Polar Night background
+		"#44475a": "#ffcd88", // Dracula's background
+		"#6f6f6f": "#000000", // dark by the 0.179 luminance threshold, though pale grey to the eye
+	}
+	for bgHex, wantHex := range want {
 		bg := mustHex(t, bgHex)
 		SetBackground(bg)
 
 		for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "more": moreStyle} {
-			if got := fgOf(t, name, s); got.Hex() != attentionBase.Hex() {
-				t.Errorf("on %s %sStyle = %s, want unchanged base %s", bgHex, name, got.Hex(), attentionBase.Hex())
+			if got := fgOf(t, name, s); got.Hex() != wantHex {
+				t.Errorf("on %s %sStyle = %s, want %s (62c4d1e's colour, unchanged)", bgHex, name, got.Hex(), wantHex)
 			}
 		}
 		if helpKeyStyle.GetBold() {
@@ -374,6 +388,9 @@ func TestAttentionUnchangedOnDark(t *testing.T) {
 		}
 		if numStyle.GetBold() {
 			t.Errorf("on %s numStyle should not be bold", bgHex)
+		}
+		if !moreStyle.GetBold() {
+			t.Errorf("on %s moreStyle should stay bold", bgHex)
 		}
 		if got, want := fgOf(t, "dim", dimStyle), fgOf(t, "helpNote", helpNoteStyle); got.Hex() != want.Hex() {
 			t.Errorf("on %s dimStyle = %s, want the dim role's colour %s", bgHex, got.Hex(), want.Hex())

@@ -24,11 +24,15 @@ const (
 	// ruleContrast is WCAG's threshold for non-text: the detail pane's divider is a
 	// line to see, not something to read.
 	ruleContrast = 3.0
-	// accentContrast is WCAG's threshold for bold or large text, not the 4.5:1
-	// normal-text threshold. The attention role's styles (help keys, JSON
-	// numbers, bar notes) are short tokens, bold on light backgrounds (see
-	// SetBackground); holding them to 4.5:1 forced a near-black brown on a light
-	// terminal, leaving almost no differentiation from the surrounding text.
+	// accentContrast is WCAG's large-text threshold (18pt, or 14pt bold), not the
+	// normal-text 4.5:1. The attention role's styles (help keys, JSON numbers,
+	// bar notes) are short tokens that don't literally qualify as large text at
+	// terminal size, so this is a deliberate trade, not a strict reading of
+	// WCAG: SetBackground applies it, always paired with bold, only on light
+	// backgrounds, where holding attention to 4.5:1 forced a near-black brown
+	// with almost no differentiation from the surrounding text — the user chose
+	// a bold amber at 3:1 over that. Dark backgrounds keep the normal-text
+	// 4.5:1 guarantee, unbolded, exactly as before this role existed.
 	accentContrast = 3.0
 	// lightLuminance is where black and white text contrast equally with a
 	// background, (L+0.05)/0.05 = 1.05/(L+0.05). Above it, text should be darker.
@@ -312,23 +316,29 @@ func SetBackground(bg colorful.Color) {
 		return lipgloss.NewStyle().Foreground(name)
 	}
 	accent := fg(accentBase, textContrast)
-	attention := fg(attentionBase, accentContrast)
 	dim := fg(dimBase, textContrast)
+
+	// attention targets textContrast, the same 4.5:1 as every other role, on
+	// every background — including dark ones far from black, such as Nord's
+	// #3b4252 — so it stays exactly as it always was there. accentContrast
+	// (3:1, always paired with bold — see its comment) applies only when
+	// isLight(bg): that's the one case the user actually asked to change.
+	attention := fg(attentionBase, textContrast)
+	if isLight(bg) {
+		attention = fg(attentionBase, accentContrast).Bold(true)
+	}
 
 	statusStyle, helpHeadStyle, keyStyle = accent, accent.Bold(true), accent
 	moreStyle = attention.Bold(true)
+	helpKeyStyle, numStyle = attention, attention
 	helpNoteStyle, nullStyle, tsStyle = dim, dim, dim
 	if isLight(bg) {
-		// A light terminal's help keys and numbers are held to 3:1, not 4.5
-		// (accentContrast, above), so they must actually be bold to claim WCAG's
-		// bold/large-text threshold. The list's context rows lose dimStyle's
-		// foreground altogether here: the user found the dim grey washed out on a
-		// light background and wanted the terminal's own (typically black) text
+		// The list's context rows lose dimStyle's foreground altogether on a
+		// light background: the user found the dim grey washed out next to a
+		// true black and wanted the terminal's own (typically black) text
 		// instead, which is what an unstyled render falls back to.
-		helpKeyStyle, numStyle = attention.Bold(true), attention.Bold(true)
 		dimStyle = lipgloss.NewStyle()
 	} else {
-		helpKeyStyle, numStyle = attention, attention
 		dimStyle = dim
 	}
 	impStyle = fg(importantBase, textContrast).Bold(true)
