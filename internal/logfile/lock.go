@@ -45,7 +45,9 @@ func (e *LockedError) Holder() string {
 // crashes, so it is never stale, whereas a PID can be reused by an unrelated
 // process. The lock file is never deleted, since that would race the next locker.
 func acquire(dir string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dir, lockName), os.O_RDWR|os.O_CREATE, 0o644)
+	// 0o600: the lock file only ever holds a PID, but owner-only keeps every
+	// file this package creates to the same, easily-audited permission.
+	f, err := os.OpenFile(filepath.Join(dir, lockName), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
 	}

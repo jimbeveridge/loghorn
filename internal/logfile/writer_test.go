@@ -72,6 +72,21 @@ func exists(path string) bool {
 	return err == nil
 }
 
+// Both files hold days of dev-server output — auth headers, tokens — so they
+// must not be readable by other accounts on the box.
+func TestOpenCreatesLoghornLogOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	openAt(t, dir, at(2026, 9, 15, 10, 0))
+
+	fi, err := os.Stat(filepath.Join(dir, "loghorn.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("loghorn.log mode = %o, want 0600", got)
+	}
+}
+
 func TestOpenWritesRecordsWithNewlines(t *testing.T) {
 	dir := t.TempDir()
 	w, _ := openAt(t, dir, at(2026, 9, 15, 10, 0))

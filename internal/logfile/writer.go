@@ -153,9 +153,11 @@ func (w *Writer) Close() error {
 	return err
 }
 
-// open opens loghorn.log for appending as the file covering day.
+// open opens loghorn.log for appending as the file covering day. 0o600 because
+// the file can hold days of dev-server output — tokens, auth headers — that
+// other accounts on the box should not be able to read.
 func (w *Writer) open(day time.Time) error {
-	f, err := os.OpenFile(w.path(currentName), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(w.path(currentName), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
 		return err
 	}
