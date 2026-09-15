@@ -83,16 +83,58 @@ func (w *Writer) start(today time.Time) error {
 }
 
 // Write appends rec and a newline in a single unbuffered write, so tail -F stays
-// current and a crash loses nothing. After Close it does nothing.
+// current and a crash loses nothing. If a local midnight has passed since the
+// file was opened, it is archived first — before the write, so a record is never
+// split across days and always lands on the side of midnight it arrived on.
+//
+// The first failure is returned and stops the Writer: every later Write does
+// nothing and returns nil, so the caller reports the problem once. After Close,
+// Write also does nothing.
 func (w *Writer) Write(rec []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.f == nil {
 		return nil
 	}
+	if err := w.write(rec); err != nil {
+		if w.f != nil {
+			w.f.Close()
+			w.f = nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (w *Writer) write(rec []byte) error {
+	if now := w.clock(); !now.Before(w.next) {
+		if err := w.rollover(w.midnight(now)); err != nil {
+			return err
+		}
+	}
 	w.buf = append(append(w.buf[:0], rec...), '\n')
 	_, err := w.f.Write(w.buf)
 	return err
+}
+
+// rollover archives the current file under the day it covers, prunes, and opens
+// today's. The archive is named by w.day rather than yesterday's date, so a file
+// opened on the 14th that sees nothing until the 16th is still the 14th — which
+// agrees with its mtime. The check happens only on a record; if nothing arrives
+// after midnight, the next startup's mtime rule covers it.
+func (w *Writer) rollover(today time.Time) error {
+	f := w.f
+	w.f = nil
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := w.archive(w.day); err != nil {
+		return err
+	}
+	if err := w.prune(today); err != nil {
+		return err
+	}
+	return w.open(today)
 }
 
 // Close closes the file and releases the lock. It is safe to call twice.
