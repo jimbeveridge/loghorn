@@ -113,9 +113,6 @@ func TestSourceTreeUnreadableGoModStopsTheWalk(t *testing.T) {
 // A module line may follow leading "//" comment lines and a blank line.
 func TestSourceTreeModulePathAfterComments(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	content := "// generated file\n// do not edit\n\nmodule github.com/jimbeveridge/loghorn\n\ngo 1.25.0\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -128,9 +125,6 @@ func TestSourceTreeModulePathAfterComments(t *testing.T) {
 // A go.mod with no module line at all is not loghorn.
 func TestSourceTreeGoModWithoutModuleLine(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("go 1.25.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

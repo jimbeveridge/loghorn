@@ -300,20 +300,27 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 - `-historical` reads `.loghorn/` in the current directory — the directory it's run from,
   same as the always-on log file, not wherever an earlier recording loghorn happened to run
   from.
-- Piping the log file back into loghorn (`tail -F .loghorn/loghorn.log | loghorn`,
-  `cat .loghorn/loghorn.log | loghorn`) is still recorded and loops: only a plain,
-  regular-file stdin (`loghorn < file`) is recognised as a replay and skipped, because a
-  pipe can't be told apart from any other live input. Use `-historical` to read the stored
-  files back instead.
+- Piping the log file back into loghorn (`tail -F .loghorn/loghorn.log | loghorn`) still
+  loops: `tail -F` follows the file forever, so every record loghorn appends becomes new
+  input for `tail` to send straight back. `cat .loghorn/loghorn.log | loghorn` doesn't loop
+  the same way — `cat` stops at EOF — but still duplicates every record already in the
+  file, since only a plain regular-file stdin (`loghorn < file`) is recognised as a replay
+  and skipped; a pipe from `cat` isn't. Use `-historical` to read the stored files back
+  instead.
 - A day's file can hold records from producers of different formats, if a project's line
   format changed partway through the day or two producers with different formats both fed
-  the same loghorn. `-historical` detects a file's format once, from the start of that
-  file, so such a day replays split at the point the format changed rather than record by
-  record.
-- A write failure in the last instant before exit — after the TUI has quit but before
-  loghorn has collected the error from the log-file goroutine — is not printed.
-- `-historical` refuses non-terminal stdin (see Guards above), so a cron job or CI run
-  needs `</dev/null` to satisfy that check.
+  the same loghorn. `ingest.Records` picks one format for the whole file from its first
+  line, so the file is not split at the change: if it starts in line format, later YAML
+  documents come apart into one record per line; if it starts in YAML, later line records
+  are merged into the preceding YAML document.
+- A write failure in the last instant before exit is not printed. Write errors reach main
+  through the ingest goroutine's sink, which fills the buffered `logErr` channel before
+  telling the TUI; main checks that channel once, in a non-blocking select right after the
+  TUI quits. A failure already sitting in the channel by then is printed; one that arrives
+  after that check already ran — and found the channel empty — is not.
+- `-historical` refuses stdin that isn't a character device — a pipe or a regular file (see
+  Guards above). `/dev/null` is a character device, so a cron job or CI run whose stdin
+  would otherwise be a pipe or a redirected file can satisfy the check with `</dev/null`.
 
 ## Out of scope
 
