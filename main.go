@@ -28,6 +28,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lucasb-eyer/go-colorful"
+	"github.com/muesli/termenv"
 
 	"github.com/jimbeveridge/loghorn/internal/adapter"
 	"github.com/jimbeveridge/loghorn/internal/alert"
@@ -91,6 +93,7 @@ func main() {
 	grace := flag.Duration("shutdown-grace", 5*time.Second, "how long a launched command gets to exit on SIGTERM before SIGKILL")
 	exclusive := flag.Bool("exclusive", false, "exit if another loghorn is already writing the log file, instead of running without one")
 	historical := flag.Bool("historical", false, "show the stored log files (oldest day first, then today) instead of live input")
+	theme := flag.String("theme", "auto", "colours: auto (ask the terminal for its background), light, dark, or the background as #rrggbb")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -103,6 +106,13 @@ func main() {
 			explicitScrollback = true
 		}
 	})
+
+	// A bad --theme is a usage error, reported before anything is launched.
+	themeBackground, askTerminal, err := parseTheme(*theme)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "loghorn:", err)
+		os.Exit(2)
+	}
 
 	// Refuse to run from loghorn's own source tree before anything is launched or
 	// written. `go run .` only works from there, and it builds into a temporary
@@ -219,6 +229,15 @@ func main() {
 		coalescer = alert.NewCoalescer(*notifyMaxAge, *notifyReset, nil)
 		notifier = alert.BeeepNotifier{Sound: *notifySound}
 	}
+
+	// Colours are resolved against the terminal's background before Bubble Tea
+	// starts. The OSC 11 reply comes back on the terminal, and once the program is
+	// reading /dev/tty it would arrive as keystrokes. --filter has returned by now;
+	// it writes no colour, so it never asks.
+	if askTerminal {
+		themeBackground = terminalBackground()
+	}
+	tui.SetBackground(themeBackground)
 
 	// loghorn consumes stdin for logs, so Bubble Tea can't use it for the UI:
 	// keyboard AND resize (SIGWINCH) events must come from the controlling
@@ -356,6 +375,34 @@ func openLogFile(exclusive bool) (*logfile.Writer, *logfile.LockedError) {
 func isRegularFile(f *os.File) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// parseTheme turns --theme into the background colours are resolved against.
+// ask reports "auto": the terminal is asked, and bg is unused.
+func parseTheme(s string) (bg colorful.Color, ask bool, err error) {
+	switch s {
+	case "auto":
+		return colorful.Color{}, true, nil
+	case "light":
+		return colorful.Color{R: 1, G: 1, B: 1}, false, nil
+	case "dark":
+		return colorful.Color{}, false, nil
+	}
+	// Exactly #rrggbb: colorful.Hex also accepts the #rgb short form, which the
+	// flag doesn't promise.
+	if len(s) == 7 && s[0] == '#' {
+		if c, err := colorful.Hex(s); err == nil {
+			return c, false, nil
+		}
+	}
+	return colorful.Color{}, false, errors.New("--theme must be auto, light, dark or #rrggbb")
+}
+
+// terminalBackground asks the terminal for its background colour (OSC 11). With
+// no reply termenv falls back to COLORFGBG and then to black — the dark palette
+// loghorn has always drawn — so there is no separate failure to handle.
+func terminalBackground() colorful.Color {
+	return termenv.ConvertToRGB(termenv.NewOutput(os.Stdout).BackgroundColor())
 }
 
 // executableDir is the directory of the running binary with symlinks resolved,

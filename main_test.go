@@ -10,6 +10,30 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/logfile"
 )
 
+func TestParseTheme(t *testing.T) {
+	for _, tc := range []struct {
+		in      string
+		wantHex string
+		wantAsk bool
+	}{
+		{"auto", "#000000", true},
+		{"light", "#ffffff", false},
+		{"dark", "#000000", false},
+		{"#cee8be", "#cee8be", false},
+		{"#CEE8BE", "#cee8be", false},
+	} {
+		bg, ask, err := parseTheme(tc.in)
+		if err != nil || ask != tc.wantAsk || bg.Hex() != tc.wantHex {
+			t.Errorf("parseTheme(%q) = %s, %v, %v; want %s, %v, nil", tc.in, bg.Hex(), ask, err, tc.wantHex, tc.wantAsk)
+		}
+	}
+	for _, bad := range []string{"", "blue", "cee8be", "#cee8b", "#fff", "#cee8bz", "Light"} {
+		if _, _, err := parseTheme(bad); err == nil || err.Error() != "--theme must be auto, light, dark or #rrggbb" {
+			t.Errorf("parseTheme(%q) error = %v, want the usage message", bad, err)
+		}
+	}
+}
+
 func TestIsRegularFileTrueForARegularFile(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "regular")
 	if err != nil {

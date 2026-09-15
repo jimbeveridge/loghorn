@@ -153,6 +153,15 @@ Shipped after v0 in response to real use:
   scrollback defaults to 100,000 instead of 5,000 unless `--scrollback` is given explicitly, and
   its per-line ingest-time column shows replay time, not original arrival time. See
   [the spec](superpowers/specs/2026-09-15-log-file-design.md).
+- **Colours that read on any background**: every colour was a fixed 256-colour index picked for
+  a dark terminal, and on a light one they washed out — help keys measured 1.4:1 on a `#cee8be`
+  background. loghorn now asks the terminal for its background (OSC 11) before the TUI starts and
+  resolves each style's role against it: keep the base colour if it reaches WCAG 4.5:1 (3:1 for the
+  divider) against both the background and the selected row, otherwise walk its lightness away
+  from the background, keeping its hue, until it does. The selected row is the background nudged
+  the same way. `--theme light|dark|#rrggbb` covers terminals that don't answer, such as tmux. On
+  a black terminal the colours are unchanged. See
+  [the spec](superpowers/specs/2026-09-15-adaptive-palette-design.md).
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —
 bubbletea's transitive deps (`colorprofile`, `x/ansi`, `x/cellbuf`) require it, and `go mod
