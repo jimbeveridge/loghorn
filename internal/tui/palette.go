@@ -31,13 +31,17 @@ const (
 	// terminal's, in CIE LCh lightness: enough to see, close enough that the
 	// terminal's own foreground text still reads on it.
 	selectionShift = 0.08
-	// lightnessStep is the stride of the search for a readable shade; 50 strides
-	// cover the whole lightness range.
+	// lightnessStep is the stride of the search for a readable shade.
 	lightnessStep = 0.02
+	// lightnessSteps is how many strides of lightnessStep it takes to cross the
+	// whole lightness range, 0 to 1 — kept as its own constant, rather than
+	// computed from lightnessStep at each use, so every search loop shares one
+	// bound instead of repeating the literal.
+	lightnessSteps = 50 // 1 / lightnessStep
 	// selectionVisible is the least contrast the selected row's background keeps
-	// with the terminal's. Truecolor selections measure 1.18–1.31:1; 1.1 leaves room
-	// for a 256-colour index landing a little nearer the background, while still
-	// guaranteeing the row can be seen.
+	// with the terminal's. Truecolor selections measure about 1.17–1.35:1; 1.1
+	// leaves room for a 256-colour index landing a little nearer the background,
+	// while still guaranteeing the row can be seen.
 	selectionVisible = 1.1
 )
 
@@ -151,13 +155,32 @@ var xterm = func() (table [240]colorful.Color) {
 	return table
 }()
 
+// xtermLab is xterm's entries in CIE Lab, computed once alongside the RGB
+// table above. nearestIndex runs once per style per call to SetBackground but
+// checks every one of these 240 entries each time; converting the fixed table
+// to Lab up front means only the candidate colour's own conversion happens per
+// call.
+var xtermLab = func() (table [240][3]float64) {
+	for i, x := range xterm {
+		l, a, b := x.Lab()
+		table[i] = [3]float64{l, a, b}
+	}
+	return table
+}()
+
+// sq is x squared, for the Lab distances below: colorful.Color.DistanceLab
+// doesn't take precomputed Lab values, so its formula is inlined here against
+// xtermLab.
+func sq(x float64) float64 { return x * x }
+
 // nearestIndex is the xterm index from 16 to 255 that looks most like c, by
 // distance in CIE Lab. Indices 0–15 are never chosen: they are the terminal
 // theme's own colours, whose shades loghorn doesn't know.
 func nearestIndex(c colorful.Color) int {
+	l, a, b := c.Lab()
 	best, bestDist := 0, math.Inf(1)
-	for i, x := range xterm {
-		if d := c.DistanceLab(x); d < bestDist {
+	for i, lab := range xtermLab {
+		if d := math.Sqrt(sq(l-lab[0]) + sq(a-lab[1]) + sq(b-lab[2])); d < bestDist {
 			best, bestDist = i, d
 		}
 	}
@@ -169,14 +192,14 @@ func nearestIndex(c colorful.Color) int {
 // would hide the selected row; so the nudge goes on, a lightness step at a time,
 // until what the terminal draws is on the text side of the background and at
 // least selectionVisible from it. The background is judged as itself, not as its
-// nearest index: the terminal draws it exactly. Fifty steps reach black or white,
-// which contrast with any background on the other side of lightLuminance by more
-// than 4:1, so the bound is never what ends the loop.
+// nearest index: the terminal draws it exactly. lightnessSteps steps reach black
+// or white, which contrast with any background on the other side of
+// lightLuminance by more than 4:1, so the bound is never what ends the loop.
 func showSelection(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
 	for i := 0; ; i++ {
 		shown, name := d(nudge(bg, selectionShift+lightnessStep*float64(i)))
 		towardText := (luminance(shown) < luminance(bg)) == isLight(bg)
-		if towardText && contrast(shown, bg) >= selectionVisible || i == 50 {
+		if towardText && contrast(shown, bg) >= selectionVisible || i == lightnessSteps {
 			return shown, name
 		}
 	}
@@ -191,12 +214,25 @@ func pick(base colorful.Color, target float64, bg, sel colorful.Color, d display
 	if shown, name := d(base); worst(shown) >= target {
 		return shown, name
 	}
+	// Hcl's hue is meaningless here when it's read off a near-grey: go-colorful's
+	// LabToHcl sets it to 0 whenever |a| <= 1e-4 or a and b are nearly equal,
+	// rather than leaving it undefined. inGamut only uses that hue to hold a
+	// chromatic colour's lightness slide steady, so a meaningless hue on a grey —
+	// which has no chroma to hold steady either — changes nothing.
 	h, c, l := base.Hcl()
 	dir := towardText(bg)
-	for i := 1; i <= 50; i++ {
-		if shown, name := d(inGamut(h, c, clamp01(l+dir*lightnessStep*float64(i)))); worst(shown) >= target {
+	prevL := l
+	for i := 1; i <= lightnessSteps; i++ {
+		nextL := clamp01(l + dir*lightnessStep*float64(i))
+		if shown, name := d(inGamut(h, c, nextL)); worst(shown) >= target {
 			return shown, name
 		}
+		if nextL == prevL {
+			// Lightness has saturated at 0 or 1; every further step would just
+			// retry the candidate already rejected above.
+			break
+		}
+		prevL = nextL
 	}
 	// No shade of this hue reads: a mid-grey background leaves no room in either
 	// direction. Fall back to whichever of black and white does better.

@@ -115,11 +115,11 @@ colour at that lightness.
    the selection background and every candidate are quantised before their contrast is
    judged. The selection's nudge continues in 0.02 steps until the colour shown is on the
    text side of the real background and contrasts with it by at least 1.1:1. Truecolor
-   selections measure 1.18–1.31:1, so 1.1 allows for quantisation while keeping the row
-   visible. On `#cee8be` the first nudge already qualifies, 151 `#afd7af` at 1.21:1; on
-   `#d7ffaf`, itself index 193, the nudge steps on to 150. The background is never
-   quantised: the terminal draws it exactly, so visibility is judged against it, not
-   against its nearest index.
+   selections measure about 1.17–1.35:1, so 1.1 allows for quantisation while keeping the
+   row visible. On `#cee8be` the first nudge already qualifies, 151 `#afd7af` at 1.21:1; on
+   `#d7ffaf`, itself index 193, the first nudge already lands on a different one, 150. The
+   background is never quantised: the terminal draws it exactly, so visibility is judged
+   against it, not against its nearest index.
 
 Checking against the selection background as well matters because the status bar and the
 selected row are drawn on it: the bar's own text is `accent`, and a selected important
@@ -174,8 +174,8 @@ the search has no profile branches of its own.
   `#fdf6e3` and `#d7ffaf`, every style names an index from 16 to 255 whose colour reaches its
   target against the background and the selection's index, and the selection's colour is on
   the text side of the background at 1.1:1 or more. The selection stops at the first nudge
-  that qualifies: 151 on `#cee8be`, 234 on `#000000`, 254 on `#ffffff`. Tests that care about the profile set it and restore it, so they
-  don't depend on the environment.
+  that qualifies: 151 on `#cee8be`, 234 on `#000000`, 254 on `#ffffff`. Tests that care
+  about the profile set it and restore it, so they don't depend on the environment.
 - **Every style is wired to its role:** at package init each of the 15 text styles is its
   role's base colour, and the divider is lightened from its base to reach 3:1.
 - **Mid grey falls back correctly:** on `#808080` no colour reaches 4.5:1 against both the
@@ -193,7 +193,8 @@ the search has no profile branches of its own.
   to the new values.
 - **Manual:** on the `#cee8be` terminal, the help screen, the status bar, a selected
   important row, and a JSON/YAML/SQL detail pane all read clearly; the same with
-  `--theme dark` on a dark terminal looks as it does today.
+  `--theme dark` on a dark terminal shows text colours as before, a subtler selected row,
+  a slightly lighter divider, and fixed green strings.
 
 ## Known limits, accepted
 
@@ -215,6 +216,9 @@ the search has no profile branches of its own.
 - A mid-grey background, around `#808080`, has no colour that reaches 4.5:1 against both
   it and the selection shade; every text role falls back to black, at about 4:1 on a
   selected row.
+- On saturated dark-blue backgrounds such as `#000044`, the 256-colour selection is much
+  heavier than usual, index 61 at about 3.45:1, because the cube has few dark blues to nudge
+  through; text still meets its targets.
 - Default-coloured text — the body of every list line — is the terminal's own foreground
   and is never recoloured. The selection background is kept close to the real background
   so that text stays readable on it.

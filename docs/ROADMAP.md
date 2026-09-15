@@ -171,7 +171,8 @@ Shipped after v0 in response to real use:
   from the background, keeping its hue, until it does. The selected row is the background nudged
   the same way. `--theme light|dark|#rrggbb` covers terminals that don't answer, such as tmux. On
   a black terminal text keeps its colours, except strings, which use a fixed green instead of the
-  theme's ANSI green; the divider is lightened slightly and the selected row is subtler, both
+  theme's ANSI green; timestamps move from 244 to the dim role's 245, one step and
+  indistinguishable; the divider is lightened slightly and the selected row is subtler, both
   derived from the background. On a 256-colour terminal each colour is judged as the palette index
   it will be drawn with. See
   [the spec](superpowers/specs/2026-09-15-adaptive-palette-design.md).

@@ -111,7 +111,8 @@ func TestSetBackgroundMakesEveryStyleReadable(t *testing.T) {
 // On a 256-colour terminal the colours the terminal actually shows — indices, not
 // the hex values they approximate — read on the background and on the selected
 // row, and the selected row stays visible against the background the terminal
-// really draws. #d7ffaf is itself an index, 193, which the nudge must step past.
+// really draws. #d7ffaf is itself an index, 193; the first nudge already lands
+// on a different one, 150.
 func TestSetBackgroundReadableOnANSI256(t *testing.T) {
 	useProfile(t, termenv.ANSI256)
 	for _, bgHex := range []string{"#000000", "#1e1e1e", "#ffffff", "#cee8be", "#fdf6e3", "#d7ffaf"} {
@@ -165,6 +166,11 @@ func TestSetBackgroundKeepsHue(t *testing.T) {
 				continue
 			}
 			baseH, _, _ := tc.base.Hcl()
+			// sqlType on #ffffff passes at 0.98°, close to this 1° limit: the margin
+			// is 8-bit RGB rounding, which is deterministic, not test flakiness. If a
+			// future change to a base colour or lightnessStep trips this, measure the
+			// hue before rounding to confirm it's still the same rounding effect
+			// rather than loosening the limit.
 			if diff := hueDiff(baseH, gotH); diff > 1 {
 				t.Errorf("on %s %sStyle = %s; hue %.1f is %.1f° from the base's %.1f, want within 1°",
 					bgHex, name, got.Hex(), gotH, diff, baseH)
@@ -229,9 +235,11 @@ func TestDefaultPaletteIsTodaysColours(t *testing.T) {
 
 // The selection is nudged no further than it must be. On #cee8be index 151 already
 // shows at 1.21:1, level with the truecolor selection; pushing on to 108 darkened
-// the row enough to cost four roles their colour.
+// the row enough to cost four roles their colour. #000055 exercises the other
+// branch, where the first nudge isn't enough: its cube has few dark blues, so
+// showSelection keeps stepping until index 54, 1.62:1, seven steps past the first.
 func TestSelectionStopsWhenVisible(t *testing.T) {
-	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254"} {
+	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254", "#000055": "54"} {
 		if _, got := showSelection(mustHex(t, bgHex), ansi256); got != want {
 			t.Errorf("on %s the 256-colour selection = %s, want %s", bgHex, got, want)
 		}

@@ -13,7 +13,7 @@ import (
 func TestParseTheme(t *testing.T) {
 	for _, tc := range []struct {
 		in      string
-		wantHex string
+		wantHex string // ignored when wantAsk is true: bg is documented unused then.
 		wantAsk bool
 	}{
 		{"auto", "#000000", true},
@@ -23,7 +23,7 @@ func TestParseTheme(t *testing.T) {
 		{"#CEE8BE", "#cee8be", false},
 	} {
 		bg, ask, err := parseTheme(tc.in)
-		if err != nil || ask != tc.wantAsk || bg.Hex() != tc.wantHex {
+		if err != nil || ask != tc.wantAsk || (!tc.wantAsk && bg.Hex() != tc.wantHex) {
 			t.Errorf("parseTheme(%q) = %s, %v, %v; want %s, %v, nil", tc.in, bg.Hex(), ask, err, tc.wantHex, tc.wantAsk)
 		}
 	}
