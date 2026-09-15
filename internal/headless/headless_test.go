@@ -2,7 +2,9 @@ package headless
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,9 +64,43 @@ func TestRunPassesEveryRecordToSink(t *testing.T) {
 			if err := Run(strings.NewReader(tc.input), io.Discard, sink); err != nil {
 				t.Fatalf("Run error: %v", err)
 			}
-			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			if !slices.Equal(got, tc.want) {
 				t.Fatalf("sink got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// errWriter always fails, so Run's write to w errors on the first important
+// record.
+type errWriter struct{ err error }
+
+func (w errWriter) Write(p []byte) (int, error) { return 0, w.err }
+
+// A write failure must not stop records from reaching the sink: the log file
+// (the sink) is meant to keep the whole stream even when the filtered
+// stdout writer has failed. Run still reports the write error once done.
+func TestRunKeepsFeedingSinkAfterWriteError(t *testing.T) {
+	input := strings.Join([]string{
+		`{"severity":"ERROR","textPayload":"first"}`,
+		`{"severity":"ERROR","textPayload":"second"}`,
+		`{"severity":"ERROR","textPayload":"third"}`,
+	}, "\n") + "\n"
+	want := []string{
+		`{"severity":"ERROR","textPayload":"first"}`,
+		`{"severity":"ERROR","textPayload":"second"}`,
+		`{"severity":"ERROR","textPayload":"third"}`,
+	}
+
+	var got []string
+	sink := func(rec []byte) { got = append(got, string(rec)) }
+	wantErr := errors.New("write failed")
+
+	err := Run(strings.NewReader(input), errWriter{wantErr}, sink)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Run error = %v, want %v", err, wantErr)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("sink got %q, want %q", got, want)
 	}
 }

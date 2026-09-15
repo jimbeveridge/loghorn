@@ -15,14 +15,14 @@ import (
 // keeps the whole stream. The slice passed to sink is only valid during the call.
 func Run(r io.Reader, w io.Writer, sink func(rec []byte)) error {
 	var writeErr error
-	err := ingest.Records(r, func(line []byte) {
+	err := ingest.Records(r, func(rec []byte) {
 		if sink != nil {
-			sink(line)
+			sink(rec)
 		}
 		if writeErr != nil {
 			return
 		}
-		e := adapter.ParseLine(line)
+		e := adapter.ParseLine(rec)
 		if !engine.IsImportant(e) {
 			return
 		}

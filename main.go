@@ -60,7 +60,8 @@ is kept as loghorn-YYYY-MM-DD.log, and days before the last three are deleted.
 Input read from a file (loghorn < file) is not recorded — it's already on disk.
 loghorn will not run from inside its own source tree. Read the stored files
 back with -historical: oldest day first, then today, read-only, stopping at the
-end rather than following the live file.
+end rather than following the live file. -historical reads the terminal, so
+from cron or CI pass </dev/null.
 
 Examples:
   loghorn -- npm run dev
@@ -343,9 +344,9 @@ func main() {
 func openLogFile(exclusive bool) (*logfile.Writer, *logfile.LockedError) {
 	dir, err := logDir()
 	if err != nil {
-		// "log file:" distinguishes this from every other startup error, so the
-		// user knows the side log — not the thing they're launching — is the
-		// problem.
+		// "log file:" marks this as the side log's problem, not the thing being
+		// launched — unlike -historical's setup errors below, which print the
+		// plain "loghorn: <err>" because -historical has no side log to blame.
 		fmt.Fprintln(os.Stderr, "loghorn: log file:", err)
 		os.Exit(1)
 	}
@@ -361,9 +362,9 @@ func openLogFile(exclusive bool) (*logfile.Writer, *logfile.LockedError) {
 		os.Exit(1)
 	}
 	if err != nil {
-		// "log file:" distinguishes this from every other startup error, so the
-		// user knows the side log — not the thing they're launching — is the
-		// problem.
+		// "log file:" marks this as the side log's problem, not the thing being
+		// launched — unlike -historical's setup errors below, which print the
+		// plain "loghorn: <err>" because -historical has no side log to blame.
 		fmt.Fprintln(os.Stderr, "loghorn: log file:", err)
 		os.Exit(1)
 	}
@@ -402,7 +403,9 @@ func parseTheme(s string) (bg colorful.Color, ask bool, err error) {
 
 // terminalBackground asks the terminal for its background colour (OSC 11). With
 // no reply termenv falls back to COLORFGBG and then to black, whose palette keeps
-// loghorn's usual text colours, so there is no separate failure to handle. termenv
+// loghorn's usual text colours — except strings, which use a fixed green rather
+// than a colour picked against the resolved background — so there is no separate
+// failure to handle. termenv
 // follows the query with a cursor-position request, which a terminal that ignores
 // OSC 11 still answers at once; a terminal that answers neither stalls startup
 // for termenv's 5 s timeout. So does an interactive piped producer reading the
@@ -459,11 +462,13 @@ func scrollbackFor(historical, explicit bool, n int) int {
 }
 
 // openHistoricalFiles resolves -historical's stored files and opens every one
-// of them before any is read, so a concurrent midnight rename by a recording
-// loghorn can't make a file disappear mid-listing — an open descriptor
-// survives being renamed out from under it. A file that vanished between
-// listing and opening was pruned in that window and is simply skipped; any
-// other failure here is fatal, like every other -historical setup problem.
+// of them before any is read, which narrows but does not close the window for
+// a concurrent midnight rename by a recording loghorn: once a file is open, an
+// open descriptor survives the rename, but a rename landing between listing
+// and the open of loghorn.log can still skip the day it was just archived to.
+// A file that vanished between listing and opening was pruned in that window
+// and is simply skipped; any other failure here is fatal, like every other
+// -historical setup problem.
 func openHistoricalFiles() []*os.File {
 	dir, err := logDir()
 	if err != nil {
