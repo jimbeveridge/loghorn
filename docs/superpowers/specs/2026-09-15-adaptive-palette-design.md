@@ -106,21 +106,27 @@ colour at that lightness.
    `#003357` sits on it, and reading its hue the naive way once sent the selected row to
    maroon instead of a darker navy.
 
-   On a mid-grey background — `#6f6f6f` and `#808080` are the measured cases — the
-   toward-text selection can leave *no* colour able to reach `textContrast` against both the
-   background and it: the selection sits between the background and whichever of black or
-   white the fallback would use, which only narrows the contrast that fallback depends on.
-   So the toward-text selection is tried first, and kept if black or white (as the terminal
-   will actually show them) already reaches `textContrast` against both the background and
-   it — the ordinary case, unchanged. Only when neither does is the selection nudged the
-   *other* way instead — away from the text direction, with the same stepping and the same
-   visibility rule (on the far side of the background, `selectionVisible` from it) — and that
-   selection is used if it gets black or white to `textContrast` against both. Moving away
+   On a mid-luminance background — grey, such as `#6f6f6f` or `#808080`, or saturated, such
+   as `#0066cc` — the toward-text selection can leave *no* colour able to reach `textContrast`
+   against both the background and it: the selection sits between the background and
+   whichever of black or white the fallback would use, which only narrows the contrast that
+   fallback depends on. So the toward-text selection is tried first, and kept if black or
+   white (as the terminal will actually show them) already reaches `textContrast` against
+   both the background and it — the ordinary case, unchanged. Only when neither does is the
+   selection nudged the *other* way instead — away from the text direction, with the same
+   stepping — and that selection is used only if it is both visible against the real
+   background, `selectionVisible` or more, and gets black or white to `textContrast` against
+   both. Visibility is checked explicitly rather than assumed from the stepping alone: nudging
+   away from the text side walks toward whichever extreme (black or white) the background is
+   already closer to, so — unlike the toward-text search, which always clears
+   `selectionVisible` well before it could run out of steps — the mirrored search can exhaust
+   its steps on a very light or very dark background without ever reaching it. Moving away
    from the text direction moves the selection away from the fallback colour too, which is
    what restores the reach the toward-text side lost, at the cost of a selection sitting
    further from the terminal's own background than usual. If neither direction reaches the
-   target, the toward-text selection is kept regardless: flipping only when it actually helps
-   means a background where nothing works looks exactly as it did before this rule existed.
+   target, or the flipped selection isn't visible, the toward-text selection is kept
+   regardless: flipping only when it actually helps means a background where nothing works
+   looks exactly as it did before this rule existed.
 3. **Each foreground role.** Start at the base colour. If its contrast against *both* the
    background and the selection background reaches the target, keep it — so on a typical
    dark terminal the colours barely change. Otherwise step LCh lightness by 0.02 in the
@@ -290,8 +296,14 @@ the search has no profile branches of its own.
   threshold — a background classified light this way can itself have a light terminal
   foreground; loghorn has no way to know what the terminal's own text colour actually is,
   so `dimStyle`'s "use the terminal's own foreground" fallback can't be guaranteed readable
-  right at that boundary, unlike every colour loghorn picks itself. That caveat is
-  unaffected by the flip: it concerns the one role that isn't loghorn's own colour choice.
+  right at that boundary, unlike every colour loghorn picks itself. The flip changes this
+  case rather than leaving it alone, and not always for the better: on a light grey that
+  flips, the selection moves lighter, further from the terminal's own (unknown) foreground —
+  measured on `#808080`, black text on the selected row goes from 4.00:1 toward-text to
+  7.01:1 flipped, but white goes from 5.25:1 to 3.00:1. A dark terminal foreground on that
+  row reads better after the flip; a light one reads worse. `dimStyle` carries no colour at
+  all on these light backgrounds (see Targets), so it's exactly this uncertain case the flip
+  touches, not a role it leaves untouched.
 - On saturated dark-blue backgrounds such as `#000044`, the 256-colour selection is much
   heavier than usual, index 61 at about 3.45:1, because the cube has few dark blues to nudge
   through; text still meets its targets.

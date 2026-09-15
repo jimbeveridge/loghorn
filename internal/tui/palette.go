@@ -227,9 +227,19 @@ func nearestIndex(c colorful.Color) int {
 // goes on, a lightness step at a time, until what the terminal draws is on
 // dir's side of the background and at least selectionVisible from it. The
 // background is judged as itself, not as its nearest index: the terminal draws
-// it exactly. lightnessSteps steps reach black or white, which contrast with
-// any background on the other side of lightLuminance by more than 4:1, so the
-// bound is never what ends the loop.
+// it exactly.
+//
+// lightnessSteps steps reach black or white. When dir is towardText(bg) that
+// bound is never what ends the loop: black or white contrasts with any
+// background on the other side of lightLuminance by more than 4:1, well past
+// selectionVisible, so the visibility check above always fires first. That
+// guarantee does not carry over to the mirrored direction
+// selectionForBackground's flip uses (dir = -towardText(bg)): nudging away
+// from the text side walks toward the *same* extreme the background is
+// already closer to, so on a background near that extreme the loop can hit
+// the bound with a selection still short of selectionVisible. Callers that
+// pass the mirrored direction must check the result's visibility themselves;
+// selectionForBackground does.
 func showSelection(bg colorful.Color, dir float64, d display) (colorful.Color, lipgloss.Color) {
 	for i := 0; ; i++ {
 		shown, name := d(nudgeDir(bg, selectionShift+lightnessStep*float64(i), dir))
@@ -293,15 +303,15 @@ func blackOrWhiteReaches(target float64, bg, sel colorful.Color, d display) bool
 // resolves styles against: today's toward-text selection, unless that leaves
 // every role's fallback out of reach.
 //
-// A mid-grey background such as #6f6f6f or #808080 nudged toward the text
-// direction moves the selection *closer* to whichever of black or white the
-// text would fall back to — a light background's toward-text selection is
-// darker, nearer black; a dark one's is lighter, nearer white — which shrinks
-// exactly the contrast pick's fallback depends on. On these backgrounds no
-// role reaches textContrast against both the background and that selection,
-// so every role still targeting it (attention on a light background is the
-// one exception, already at accentContrast) falls back to black or white
-// below target.
+// A mid-luminance background — grey, such as #6f6f6f or #808080, or saturated,
+// such as #0066cc — nudged toward the text direction moves the selection
+// *closer* to whichever of black or white the text would fall back to — a
+// light background's toward-text selection is darker, nearer black; a dark
+// one's is lighter, nearer white — which shrinks exactly the contrast pick's
+// fallback depends on. On these backgrounds no role reaches textContrast
+// against both the background and that selection, so every role still
+// targeting it (attention on a light background is the one exception, already
+// at accentContrast) falls back to black or white below target.
 //
 // Nudging the *other* way instead moves the selection further from that
 // fallback colour, which can restore the reach the toward-text side lost, at
@@ -310,17 +320,22 @@ func blackOrWhiteReaches(target float64, bg, sel colorful.Color, d display) bool
 // black or white already reaches textContrast against both the background and
 // it — the common case, unchanged. Only when that fails is the mirrored
 // selection tried, with the same stepping and the same visibility rule run in
-// the other direction; it is used only if it actually gets black or white to
-// target against both. If neither side does, the toward-text selection is
-// kept regardless — flipping only when it helps means a background where
-// nothing works looks exactly as it did before this existed.
+// the other direction. It is used only if it is actually visible — contrast
+// with the real background at least selectionVisible, checked here rather
+// than assumed, because showSelection's own loop can exhaust its steps
+// without reaching that bar in this direction (see showSelection's comment) —
+// and gets black or white to target against both. If neither side does, the
+// toward-text selection is kept regardless — flipping only when it helps
+// means a background where nothing works looks exactly as it did before this
+// existed.
 func selectionForBackground(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
 	toward := towardText(bg)
 	sel, name := showSelection(bg, toward, d)
 	if blackOrWhiteReaches(textContrast, bg, sel, d) {
 		return sel, name
 	}
-	if away, awayName := showSelection(bg, -toward, d); blackOrWhiteReaches(textContrast, bg, away, d) {
+	away, awayName := showSelection(bg, -toward, d)
+	if contrast(away, bg) >= selectionVisible && blackOrWhiteReaches(textContrast, bg, away, d) {
 		return away, awayName
 	}
 	return sel, name

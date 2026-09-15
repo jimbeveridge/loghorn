@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
 	"github.com/jimbeveridge/loghorn/internal/entry"
@@ -150,19 +152,66 @@ func TestSelectedRowHighlightIsContinuous(t *testing.T) {
 // TestNonSelectedRowUnchanged pins the non-selected rendering to exactly what it
 // was before this fix: tsStyle.Render(ts), a plain space, then impStyle or
 // dimStyle.Render(msg), with the "  " prefix — nothing about the fix may touch
-// this path.
+// this path. Covers both row kinds: selecting the other row each time so a
+// context row and an important row are each checked while themselves
+// non-selected.
 func TestNonSelectedRowUnchanged(t *testing.T) {
 	useProfile(t, termenv.TrueColor)
 
-	m := selectRow(t, 0) // select row 0, so row 1 is not selected
-	got := lineFor(t, m, 1)
+	for _, tc := range []struct {
+		name        string
+		selectedIdx int
+		checkIdx    int
+		style       lipgloss.Style
+	}{
+		{"context row", 1, 0, dimStyle},
+		{"important row", 0, 1, impStyle},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := selectRow(t, tc.selectedIdx)
+			got := lineFor(t, m, tc.checkIdx)
 
-	e := m.rows[1].Entry
-	ts := e.Received.Format(tsLayout)
-	msg := truncate(flatten(e.Message), m.width-len(ts)-3)
-	want := "  " + tsStyle.Render(ts) + " " + impStyle.Render(msg)
+			e := m.rows[tc.checkIdx].Entry
+			ts := e.Received.Format(tsLayout)
+			msg := truncate(flatten(e.Message), m.width-len(ts)-3)
+			want := "  " + tsStyle.Render(ts) + " " + tc.style.Render(msg)
+			if got != want {
+				t.Errorf("non-selected row changed:\ngot  %q\nwant %q", got, want)
+			}
+		})
+	}
+}
+
+// TestHeldStatusBarUnchanged pins the held (non-live) bar's rendering to exactly
+// what it was before this fix: statusStyle.Render and moreStyle.Render calls
+// concatenated directly, with the "  " prefix. selBg only enters the picture
+// when live (see statusBar), so this path must be untouched.
+func TestHeldStatusBarUnchanged(t *testing.T) {
+	useProfile(t, termenv.TrueColor)
+
+	m := NewModel(nil, 100)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+	m = m2.(Model)
+	m = feed(m, entry.Entry{Message: "line", Important: true})
+	m = m.setSelected(0) // pull the shade down
+	if m.onShade() {
+		t.Fatalf("precondition: model should be held")
+	}
+
+	got := m.statusBar()
+
+	base := fmt.Sprintf("loghorn %s · %s · %s lines · %d shown",
+		m.spinner(), "HELD", comma(m.ingested), len(m.rows))
+	var more string
+	if start, _ := m.listWindow(); start > 0 {
+		more += moreStyle.Render(fmt.Sprintf(" · ▲%d", start))
+	}
+	more += moreStyle.Render(fmt.Sprintf(" · ▼%d of %s waiting",
+		len(m.rows)-m.heldRows, comma(m.ingested-m.heldLines)))
+	tail := fmt.Sprintf(" · j/k · spc %s · enter open · ? help · q quit", toggleWord(false, m.historical))
+	want := "  " + statusStyle.Render(base) + more + statusStyle.Render(tail)
 	if got != want {
-		t.Errorf("non-selected row changed:\ngot  %q\nwant %q", got, want)
+		t.Errorf("held status bar changed:\ngot  %q\nwant %q", got, want)
 	}
 }
 
