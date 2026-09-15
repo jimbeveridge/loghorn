@@ -578,8 +578,16 @@ func (m Model) helpContent() string {
 	row("g / G", "oldest row / newest")
 	row("space", "hold / release")
 	row("click · wheel", "select a row · scroll")
-	note("the status bar is the shade's handle: on it live, off it held")
-	note("click the bar to go live")
+	if m.historical {
+		// There is no live stream to describe while replaying stored files, so
+		// the handle is described by what it actually does here: parking the
+		// cursor on the newest stored record.
+		note("the shade's handle: on it, the newest record; off it, held")
+		note("click the bar to jump to the newest record")
+	} else {
+		note("the status bar is the shade's handle: on it live, off it held")
+		note("click the bar to go live")
+	}
 
 	head("Filtering")
 	row("a", "all lines / failures only")

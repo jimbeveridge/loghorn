@@ -105,6 +105,22 @@ func TestWaitingCountersMeasureFromTheFreeze(t *testing.T) {
 	}
 }
 
+// The spacebar hint reads "live" while held and "hold" on the handle in
+// plain (non-historical) mode — the counterpart to historical's "latest".
+func TestLiveModeHintWords(t *testing.T) {
+	m := shadeModel(10)
+	m = imps(m, 5)
+
+	if got := m.statusBar(); !strings.Contains(got, "spc hold") {
+		t.Fatalf("handle hint should say hold:\n%s", got)
+	}
+
+	m = press(m, 'k')
+	if got := m.statusBar(); !strings.Contains(got, "spc live") {
+		t.Fatalf("held hint should say live:\n%s", got)
+	}
+}
+
 // The total counter climbs even when no line survives the display filter — that
 // is the whole point of having it alongside the waiting figure.
 func TestTotalClimbsWhileNothingIsDisplayed(t *testing.T) {

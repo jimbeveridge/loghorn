@@ -74,3 +74,89 @@ func TestHistoricalSpaceReturnsToHandle(t *testing.T) {
 		t.Fatalf("space from held should return to the handle in historical mode")
 	}
 }
+
+// G also returns to the handle in historical mode, same as live, and the bar
+// still reads HISTORICAL once there.
+func TestHistoricalGReturnsToHandle(t *testing.T) {
+	m := NewModel(nil, 100)
+	m.width, m.height = 200, 12
+	m.SetHistorical()
+	m = imps(m, 5)
+
+	m = press(m, 'k') // pull the shade down
+	if m.onShade() {
+		t.Fatalf("k should pull the shade down")
+	}
+
+	m = press(m, 'G')
+	if !m.onShade() {
+		t.Fatalf("G should return to the handle in historical mode")
+	}
+	if got := m.statusBar(); !strings.Contains(got, "HISTORICAL") {
+		t.Fatalf("bar should still read HISTORICAL after G:\n%s", got)
+	}
+}
+
+// Clicking the bar grabs the handle in historical mode too, exactly as it
+// does live.
+func TestHistoricalClickingBarGrabsHandle(t *testing.T) {
+	m := NewModel(nil, 100)
+	m.width, m.height = 200, 12
+	m.SetHistorical()
+	m = imps(m, 5)
+
+	m = press(m, 'k') // pull the shade down
+	if m.onShade() {
+		t.Fatalf("k should pull the shade down")
+	}
+
+	m = clickAt(m, 10, m.height-1) // the bar
+	if !m.onShade() {
+		t.Fatalf("clicking the bar should grab the handle in historical mode")
+	}
+	if got := m.statusBar(); !strings.Contains(got, "HISTORICAL") {
+		t.Fatalf("bar should still read HISTORICAL after clicking the handle:\n%s", got)
+	}
+}
+
+// Held with rows arriving behind the shade, the bar still reads HISTORICAL
+// alongside the usual ▼ waiting counter.
+func TestHistoricalHeldShowsBacklog(t *testing.T) {
+	m := NewModel(nil, 1000)
+	m.width, m.height = 60, 5
+	m.SetHistorical()
+	m = imps(m, 5)
+
+	m = press(m, 'k') // pull the shade down
+	m = imps(m, 3)    // more rows arrive behind the shade
+
+	got := m.statusBar()
+	if !strings.Contains(got, "HISTORICAL") {
+		t.Fatalf("bar should read HISTORICAL while held with a backlog:\n%s", got)
+	}
+	if !strings.Contains(got, "▼") {
+		t.Fatalf("bar should show the waiting counter while held:\n%s", got)
+	}
+}
+
+// The help overlay describes the handle as the newest record in historical
+// mode, since there is no live stream to describe; live mode's own wording
+// is unchanged.
+func TestHistoricalHelpOverlayWording(t *testing.T) {
+	live := NewModel(nil, 100)
+	live.width, live.height = 100, 20
+	if got := live.helpContent(); !strings.Contains(got, "on it live") {
+		t.Fatalf("live mode help should still describe the handle as live:\n%s", got)
+	}
+
+	m := NewModel(nil, 100)
+	m.width, m.height = 100, 20
+	m.SetHistorical()
+	got := m.helpContent()
+	if strings.Contains(got, "live") {
+		t.Fatalf("historical mode help should not say live:\n%s", got)
+	}
+	if !strings.Contains(got, "newest record") {
+		t.Fatalf("historical mode help should describe the handle by the newest record:\n%s", got)
+	}
+}
