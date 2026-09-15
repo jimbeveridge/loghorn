@@ -43,6 +43,32 @@ func TestRolloverAfterAGapNamesTheFilesOwnDay(t *testing.T) {
 	}
 }
 
+// Crossing two midnights in one run guards against rollover failing to
+// advance day/next after the first crossing — a bug that would leave the
+// second midnight undetected and both the 15th's and the 16th's records
+// landing in the same file.
+func TestRolloverCrossesTwoMidnights(t *testing.T) {
+	dir := t.TempDir()
+	w, c := openAt(t, dir, at(2026, 9, 14, 23, 0))
+	write(t, w, "a")
+	c.t = at(2026, 9, 15, 0, 30)
+	write(t, w, "b")
+	c.t = at(2026, 9, 15, 12, 0)
+	write(t, w, "c")
+	c.t = at(2026, 9, 16, 0, 10)
+	write(t, w, "d")
+
+	if got := readFile(t, filepath.Join(dir, "loghorn-2026-09-14.log")); got != "a\n" {
+		t.Fatalf("2026-09-14 archive = %q, want a", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "loghorn-2026-09-15.log")); got != "b\nc\n" {
+		t.Fatalf("2026-09-15 archive = %q, want b and c", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "loghorn.log")); got != "d\n" {
+		t.Fatalf("loghorn.log = %q, want d", got)
+	}
+}
+
 func TestRolloverPrunes(t *testing.T) {
 	dir := t.TempDir()
 	old := filepath.Join(dir, "loghorn-2026-09-11.log")
