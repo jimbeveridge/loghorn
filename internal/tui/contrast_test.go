@@ -99,13 +99,50 @@ func TestPickReachesTarget(t *testing.T) {
 	}
 }
 
-// On a light terminal an unreadable colour moves darker, not lighter.
+// hueDiff computes the angular distance between two hues in the range [0, 180].
+// This handles wrap-around at 360 degrees.
+func hueDiff(h1, h2 float64) float64 {
+	diff := math.Abs(h1 - h2)
+	if diff > 180 {
+		diff = 360 - diff
+	}
+	return diff
+}
+
+// On a light terminal an unreadable colour moves darker, not lighter, preserving hue.
 func TestPickDarkensOnLightBackground(t *testing.T) {
 	bg := mustHex(t, "#cee8be")
 	base := mustHex(t, "#ffaf00")
-	got := pick(base, textContrast, bg, selectionFor(bg))
+	sel := selectionFor(bg)
+	got := pick(base, textContrast, bg, sel)
 	if luminance(got) >= luminance(base) {
 		t.Errorf("pick(#ffaf00) on #cee8be = %s, want darker than the base", got.Hex())
+	}
+	// Must not fall back to black or white; must search through hue space.
+	if got.Hex() == black.Hex() || got.Hex() == white.Hex() {
+		t.Errorf("pick(#ffaf00) on #cee8be = %s, want a shade of the base hue, not black/white", got.Hex())
+	}
+	// Hue must stay within 12 degrees of the base (allowing for clamping precision).
+	baseH, _, _ := base.Hcl()
+	gotH, _, _ := got.Hcl()
+	if diff := hueDiff(baseH, gotH); diff > 12 {
+		t.Errorf("pick(#ffaf00) on #cee8be = %s; hue %g is %.1f degrees from base %g, want within 12°",
+			got.Hex(), gotH, diff, baseH)
+	}
+}
+
+// On a dark terminal an unreadable colour moves lighter, not darker, preserving hue.
+func TestPickLightensOnDarkBackground(t *testing.T) {
+	bg := mustHex(t, "#1e1e1e")
+	base := mustHex(t, "#585858")
+	sel := selectionFor(bg)
+	got := pick(base, ruleContrast, bg, sel)
+	if luminance(got) <= luminance(base) {
+		t.Errorf("pick(#585858) on #1e1e1e = %s, want lighter than the base", got.Hex())
+	}
+	// Must not fall back to white; must search through hue space.
+	if got.Hex() == white.Hex() {
+		t.Errorf("pick(#585858) on #1e1e1e = %s, want a shade of the base hue, not white", got.Hex())
 	}
 }
 
