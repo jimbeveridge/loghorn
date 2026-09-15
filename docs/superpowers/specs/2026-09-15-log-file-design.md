@@ -140,10 +140,12 @@ runs first, unchanged.
   start of its stream, so it runs once per file, in order, rather than over one concatenated
   stream — different days may come from different producers. `--filter` mode likewise calls
   `headless.Run` once per file, with a nil sink.
-- **Opening.** Every listed file is opened before any is read, so a concurrent midnight rename
-  by a recording loghorn can't make a file disappear mid-listing — an open descriptor survives
-  the rename. A file that vanished between listing and opening (pruned in that window) is
-  skipped; any other open error is fatal.
+- **Opening.** Every listed file is opened before any is read, which narrows but does not
+  close the window for a concurrent midnight rename by a recording loghorn: once a file is
+  open, an open descriptor survives the rename, but a rename that lands between `ReadDir`
+  and the open of `loghorn.log` can still skip the day it was just archived to. A file that
+  vanished between listing and opening (pruned in that window) is skipped; any other open
+  error is fatal.
 
 ### Single writer
 
@@ -158,10 +160,12 @@ lock. A PID-file lock ("is that PID still alive?") breaks when a crashed owner's
 reused by an unrelated process, and races when two instances start together; `flock`
 has neither problem.
 
-Only one loghorn per project (start directory) is expected at a time. Without the lock, a second one would corrupt the
-first at midnight: both roll over, and one ends up writing to an unlinked file — a whole
-day of records silently discarded while its TUI looks fine. If a second one starts
-anyway:
+Only one loghorn per project (start directory) is expected at a time. Without the lock,
+a second one would corrupt the first at midnight: both roll over, and one ends up
+writing to an unlinked file — a whole day of records silently discarded while its TUI
+looks fine. loghorns started in different directories each get their own `.loghorn/`
+and so their own lock; they never contend. If a second one starts in the same
+directory anyway:
 
 - **By default** it runs normally **without a log file** and says so, naming the owner
   (see Failures).
@@ -291,6 +295,20 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 - `-historical` reads `.loghorn/` in the current directory — the directory it's run from,
   same as the always-on log file, not wherever an earlier recording loghorn happened to run
   from.
+- Piping the log file back into loghorn (`tail -F .loghorn/loghorn.log | loghorn`,
+  `cat .loghorn/loghorn.log | loghorn`) is still recorded and loops: only a plain,
+  regular-file stdin (`loghorn < file`) is recognised as a replay and skipped, because a
+  pipe can't be told apart from any other live input. Use `-historical` to read the stored
+  files back instead.
+- A day's file can hold records from producers of different formats, if a project's line
+  format changed partway through the day or two producers with different formats both fed
+  the same loghorn. `-historical` detects a file's format once, from the start of that
+  file, so such a day replays split at the point the format changed rather than record by
+  record.
+- A write failure in the last instant before exit — after the TUI has quit but before
+  loghorn has collected the error from the log-file goroutine — is not printed.
+- `-historical` refuses non-terminal stdin (see Guards above), so a cron job or CI run
+  needs `</dev/null` to satisfy that check.
 
 ## Out of scope
 

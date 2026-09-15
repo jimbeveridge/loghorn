@@ -135,10 +135,10 @@ Shipped after v0 in response to real use:
   controls; making them persist means setting Script Editor (or terminal-notifier, which beeep
   prefers when it is on `PATH`) to "Alerts" in System Settings › Notifications.
 - **Always-on log file**: every record is appended, as its original line(s), to
-  `.loghorn/loghorn.log` in the directory loghorn was started from — not next to the
-  executable, since one binary serving every project meant every loghorn on the machine
-  shared a single lock; keying the directory off the start directory instead gives each
-  project its own logs and its own lock — so the stream outlives both the ring and loghorn
+  `.loghorn/loghorn.log` in the directory loghorn was started from, not next to the
+  executable. One binary serving every project would otherwise mean every loghorn on the
+  machine sharing a single lock; keying the directory off the start directory instead gives
+  each project its own logs and its own lock. The stream outlives both the ring and loghorn
   itself. Expiry works on whole local days — a log can only be appended to — keeping today
   plus three archived `loghorn-YYYY-MM-DD.log` files, so a line lives 72–96 hours. A
   `loghorn.log` left from an earlier day is archived by its mtime at startup; while running,
