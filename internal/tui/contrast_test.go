@@ -148,8 +148,14 @@ func TestPickLightensOnDarkBackground(t *testing.T) {
 	}
 }
 
-// Mid grey has no shade of any hue that reaches 4.5:1 against both it and its
-// selection; the fallback is whichever of black and white does better.
+// Mid grey has no shade of any hue that reaches 4.5:1 against both it and a
+// toward-text selection; pick's fallback is whichever of black and white does
+// better, exercised here directly against selectionFor's toward-text shade.
+// SetBackground itself avoids this case on #808080: selectionForBackground
+// flips to the other side of the background when the toward-text selection
+// leaves textContrast unreachable, which restores it (see
+// TestMidGreyReachesTargetViaFlip). pick's fallback still matters as the last
+// resort for whichever direction SetBackground settles on.
 func TestPickMidGreyFallsBack(t *testing.T) {
 	bg := mustHex(t, "#808080")
 	sel := selectionFor(bg)

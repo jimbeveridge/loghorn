@@ -105,6 +105,22 @@ colour at that lightness.
    regardless of chroma. That axis is not just greys: a saturated navy background such as
    `#003357` sits on it, and reading its hue the naive way once sent the selected row to
    maroon instead of a darker navy.
+
+   On a mid-grey background — `#6f6f6f` and `#808080` are the measured cases — the
+   toward-text selection can leave *no* colour able to reach `textContrast` against both the
+   background and it: the selection sits between the background and whichever of black or
+   white the fallback would use, which only narrows the contrast that fallback depends on.
+   So the toward-text selection is tried first, and kept if black or white (as the terminal
+   will actually show them) already reaches `textContrast` against both the background and
+   it — the ordinary case, unchanged. Only when neither does is the selection nudged the
+   *other* way instead — away from the text direction, with the same stepping and the same
+   visibility rule (on the far side of the background, `selectionVisible` from it) — and that
+   selection is used if it gets black or white to `textContrast` against both. Moving away
+   from the text direction moves the selection away from the fallback colour too, which is
+   what restores the reach the toward-text side lost, at the cost of a selection sitting
+   further from the terminal's own background than usual. If neither direction reaches the
+   target, the toward-text selection is kept regardless: flipping only when it actually helps
+   means a background where nothing works looks exactly as it did before this rule existed.
 3. **Each foreground role.** Start at the base colour. If its contrast against *both* the
    background and the selection background reaches the target, keep it — so on a typical
    dark terminal the colours barely change. Otherwise step LCh lightness by 0.02 in the
@@ -117,7 +133,7 @@ colour at that lightness.
    text (the WCAG non-text threshold). `attention` (`moreStyle`, `helpKeyStyle`,
    `numStyle`) targets 4.5:1 too, with one exception: **only when `isLight(bg)`**,
    it drops to `accentContrast`, 3:1, and `helpKeyStyle`/`numStyle` become bold to
-   go with it (`moreStyle` was already bold everywhere). WCAG's 3:1 is the
+   go with it (`moreStyle` is always bold). WCAG's 3:1 is the
    threshold for *large* text — 18pt, or 14pt bold — and attention's tokens are
    short, so bold help keys and numbers at terminal size don't strictly qualify;
    this is a deliberate trade the user asked for, not a strict reading of WCAG,
@@ -201,10 +217,9 @@ the search has no profile branches of its own.
   within 1°, and are bold; on `#cee8be` under ANSI256 they resolve to index 94.
   On `#000000`/`#1e1e1e` they equal today's `#ffaf00` and `helpKeyStyle`/`numStyle`
   are not bold. This also holds on dark backgrounds far from black — `#3b4252`
-  (Nord), `#44475a` (Dracula), `#6f6f6f` (light-looking but dark by the 0.179
-  luminance threshold) — each pinned to the colour 4.5:1 resolves to there
-  (`#ffbe5b`, `#ffcd88`, `#000000`), not recomputed, so the test can't drift with
-  the code it guards (`TestAttentionUnchangedOnDark`).
+  (Nord) and `#44475a` (Dracula) — each pinned to the colour 4.5:1 resolves to
+  there (`#ffbe5b`, `#ffcd88`), not recomputed, so the test can't drift with the
+  code it guards (`TestAttentionUnchangedOnDark`).
 - **Hue holds:** in truecolor, on `#cee8be` and `#ffffff`, every chromatic role (accent,
   attention, important, string, boolean, sqlKeyword, sqlType) resolves within 1° of its base
   hue. Near-grey results are skipped: their hue is undefined.
@@ -218,10 +233,19 @@ the search has no profile branches of its own.
   about the profile set it and restore it, so they don't depend on the environment.
 - **Every style is wired to its role:** at package init each of the 15 text styles is its
   role's base colour, and the divider is lightened from its base to reach 3:1.
-- **Mid grey falls back correctly:** on `#808080` no colour reaches 4.5:1 against both the
-  background and its darker selection shade (black manages 5.3:1 and 4.0:1). The test
-  asserts each text role is whichever of black and white contrasts more, not that it meets
-  the target.
+- **Mid grey falls back correctly:** `pick`'s own fallback is exercised directly, against a
+  toward-text selection: on `#808080` no shade of any hue reaches 4.5:1 against both the
+  background and that selection (black manages 5.3:1 and 4.0:1), so the test asserts each
+  text role is whichever of black and white contrasts more, not that it meets the target
+  (`TestPickMidGreyFallsBack`).
+- **Mid grey reaches target via the flip:** `SetBackground` itself avoids the case above. On
+  `#6f6f6f`, `#808080` and `#767676`, in both colour profiles, every role reaches its target
+  against both the background and the selection `SetBackground` actually resolves, the
+  divider reaches 3:1, and the selection stays at least `selectionVisible` from the
+  background (`TestMidGreyReachesTargetViaFlip`). `#6f6f6f` is dark by the 0.179 luminance
+  threshold though pale to the eye; `#767676` sits close enough above the threshold to be
+  worth checking, though its toward-text selection already reached the target before the
+  flip existed, so it stays unchanged by it.
 - **Dark terminals keep their look:** on `#000000`, every role whose base colour already
   meets the target is returned unchanged — measured, that is every role except `rule`.
 - **Direction:** the selection background on `#cee8be` is darker than `#cee8be`; on
@@ -255,17 +279,19 @@ the search has no profile branches of its own.
   termenv's 5-second timeout. So does an interactive piped producer reading the same
   terminal, which can swallow the reply. `--theme` skips the query.
 - A mid-grey background, around `#808080`, is classified light (its luminance clears
-  `lightLuminance`): every role still targeting 4.5:1 has no colour that reaches it
-  against both it and the selection shade, so falls back to black, at about 4:1 on a
-  selected row. `attention` is the exception, because a light background drops its
-  target to 3:1 (bold): `#301f00` (ANSI256 index 234) does clear 3:1 there, so it
-  doesn't fall back to plain, non-bold black like the other roles do. `dimStyle` also
-  carries no foreground on `#808080`, being light. Near `lightLuminance` — `#767676`,
-  say, just above the threshold — a background classified light this way can itself
-  have a light terminal foreground; loghorn has no way to know what the terminal's own
-  text colour actually is, so `dimStyle`'s "use the terminal's own foreground" fallback
-  can't be guaranteed readable right at that boundary, unlike every colour loghorn picks
-  itself.
+  `lightLuminance`). Its toward-text selection alone would leave every role still
+  targeting 4.5:1 with no colour that reaches it against both the background and that
+  selection, falling back to black at about 4:1 on a selected row; `#6f6f6f`, dark by the
+  same threshold though pale to the eye, has the matching problem in the other direction.
+  The selection step's flip (above) catches both: on each, black or white reaches 4.5:1
+  against the background and the *flipped* selection, so `SetBackground` uses that
+  selection instead and every role reaches its target there — see
+  `TestMidGreyReachesTargetViaFlip`. Near `lightLuminance` — `#767676`, say, just above the
+  threshold — a background classified light this way can itself have a light terminal
+  foreground; loghorn has no way to know what the terminal's own text colour actually is,
+  so `dimStyle`'s "use the terminal's own foreground" fallback can't be guaranteed readable
+  right at that boundary, unlike every colour loghorn picks itself. That caveat is
+  unaffected by the flip: it concerns the one role that isn't loghorn's own colour choice.
 - On saturated dark-blue backgrounds such as `#000044`, the 256-colour selection is much
   heavier than usual, index 61 at about 3.45:1, because the cube has few dark blues to nudge
   through; text still meets its targets.

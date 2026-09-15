@@ -129,8 +129,17 @@ func selectionFor(bg colorful.Color) colorful.Color { return nudge(bg, selection
 
 // nudge is bg with its CIE LCh lightness moved by shift toward the text direction.
 func nudge(bg colorful.Color, shift float64) colorful.Color {
+	return nudgeDir(bg, shift, towardText(bg))
+}
+
+// nudgeDir is bg with its CIE LCh lightness moved by shift in direction dir (+1
+// lighter, -1 darker), rather than always toward the text direction. showSelection's
+// mirrored search (see SetBackground's selection step) uses this to try the far
+// side of the background from the text when the near side leaves no colour able
+// to reach textContrast.
+func nudgeDir(bg colorful.Color, shift, dir float64) colorful.Color {
 	h, c, l := hcl(bg)
-	return inGamut(h, c, clamp01(l+towardText(bg)*shift))
+	return inGamut(h, c, clamp01(l+dir*shift))
 }
 
 // A display is what the terminal does with a colour loghorn asks for: the colour
@@ -210,19 +219,22 @@ func nearestIndex(c colorful.Color) int {
 	return 16 + best
 }
 
-// showSelection is the selection as d shows it. A 256-colour index is coarse, and
-// the nudge can land on an index that looks almost like the background, which
-// would hide the selected row; so the nudge goes on, a lightness step at a time,
-// until what the terminal draws is on the text side of the background and at
-// least selectionVisible from it. The background is judged as itself, not as its
-// nearest index: the terminal draws it exactly. lightnessSteps steps reach black
-// or white, which contrast with any background on the other side of
-// lightLuminance by more than 4:1, so the bound is never what ends the loop.
-func showSelection(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
+// showSelection is the selection as d shows it, nudged in direction dir (+1
+// lighter, -1 darker — pass towardText(bg) for today's selection, or its
+// mirror to search the other side; see SetBackground's selection step). A
+// 256-colour index is coarse, and the nudge can land on an index that looks
+// almost like the background, which would hide the selected row; so the nudge
+// goes on, a lightness step at a time, until what the terminal draws is on
+// dir's side of the background and at least selectionVisible from it. The
+// background is judged as itself, not as its nearest index: the terminal draws
+// it exactly. lightnessSteps steps reach black or white, which contrast with
+// any background on the other side of lightLuminance by more than 4:1, so the
+// bound is never what ends the loop.
+func showSelection(bg colorful.Color, dir float64, d display) (colorful.Color, lipgloss.Color) {
 	for i := 0; ; i++ {
-		shown, name := d(nudge(bg, selectionShift+lightnessStep*float64(i)))
-		towardText := (luminance(shown) < luminance(bg)) == isLight(bg)
-		if towardText && contrast(shown, bg) >= selectionVisible || i == lightnessSteps {
+		shown, name := d(nudgeDir(bg, selectionShift+lightnessStep*float64(i), dir))
+		onSide := (luminance(shown) < luminance(bg)) == (dir < 0)
+		if onSide && contrast(shown, bg) >= selectionVisible || i == lightnessSteps {
 			return shown, name
 		}
 	}
@@ -264,6 +276,55 @@ func pick(base colorful.Color, target float64, bg, sel colorful.Color, d display
 }
 
 func clamp01(x float64) float64 { return math.Max(0, math.Min(1, x)) }
+
+// blackOrWhiteReaches reports whether black or white, as d shows it, reaches
+// target against both bg and sel. pick's own fallback (above) judges black and
+// white the same way; selectionForBackground below uses this to decide whether
+// a candidate selection leaves textContrast reachable at all.
+func blackOrWhiteReaches(target float64, bg, sel colorful.Color, d display) bool {
+	worst := func(c colorful.Color) float64 {
+		shown, _ := d(c)
+		return math.Min(contrast(shown, bg), contrast(shown, sel))
+	}
+	return worst(black) >= target || worst(white) >= target
+}
+
+// selectionForBackground is the selected row's background SetBackground
+// resolves styles against: today's toward-text selection, unless that leaves
+// every role's fallback out of reach.
+//
+// A mid-grey background such as #6f6f6f or #808080 nudged toward the text
+// direction moves the selection *closer* to whichever of black or white the
+// text would fall back to — a light background's toward-text selection is
+// darker, nearer black; a dark one's is lighter, nearer white — which shrinks
+// exactly the contrast pick's fallback depends on. On these backgrounds no
+// role reaches textContrast against both the background and that selection,
+// so every role still targeting it (attention on a light background is the
+// one exception, already at accentContrast) falls back to black or white
+// below target.
+//
+// Nudging the *other* way instead moves the selection further from that
+// fallback colour, which can restore the reach the toward-text side lost, at
+// the cost of a selection that sits further from the terminal's own
+// background than usual. So: try today's selection first, and keep it if
+// black or white already reaches textContrast against both the background and
+// it — the common case, unchanged. Only when that fails is the mirrored
+// selection tried, with the same stepping and the same visibility rule run in
+// the other direction; it is used only if it actually gets black or white to
+// target against both. If neither side does, the toward-text selection is
+// kept regardless — flipping only when it helps means a background where
+// nothing works looks exactly as it did before this existed.
+func selectionForBackground(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
+	toward := towardText(bg)
+	sel, name := showSelection(bg, toward, d)
+	if blackOrWhiteReaches(textContrast, bg, sel, d) {
+		return sel, name
+	}
+	if away, awayName := showSelection(bg, -toward, d); blackOrWhiteReaches(textContrast, bg, away, d) {
+		return away, awayName
+	}
+	return sel, name
+}
 
 // The styles every view draws with. They are assigned only by SetBackground;
 // package init resolves them for a black terminal, so code that never calls it —
@@ -310,7 +371,7 @@ func init() { SetBackground(black) }
 // quantised: the terminal draws it exactly, whatever its profile.
 func SetBackground(bg colorful.Color) {
 	d := displayFor(lipgloss.ColorProfile())
-	sel, selName := showSelection(bg, d)
+	sel, selName := selectionForBackground(bg, d)
 	fg := func(base colorful.Color, target float64) lipgloss.Style {
 		_, name := pick(base, target, bg, sel, d)
 		return lipgloss.NewStyle().Foreground(name)

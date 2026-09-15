@@ -310,7 +310,8 @@ func TestDefaultPaletteIsTodaysColours(t *testing.T) {
 // showSelection keeps stepping until index 54, 1.62:1, seven steps past the first.
 func TestSelectionStopsWhenVisible(t *testing.T) {
 	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254", "#000055": "54"} {
-		if _, got := showSelection(mustHex(t, bgHex), ansi256); got != want {
+		bg := mustHex(t, bgHex)
+		if _, got := showSelection(bg, towardText(bg), ansi256); got != want {
 			t.Errorf("on %s the 256-colour selection = %s, want %s", bgHex, got, want)
 		}
 	}
@@ -362,25 +363,20 @@ func TestAttentionTargetsThreeToOne(t *testing.T) {
 	}
 }
 
-// On dark backgrounds nothing changes, including ones far from black:
-// accentContrast (3:1) only ever applies when isLight(bg), so attention
-// resolves at textContrast (4.5:1) exactly as it did at 62c4d1e, helpKeyStyle
-// and numStyle stay non-bold (moreStyle stays bold, as it always was), and
-// dimStyle keeps the dim role's foreground rather than losing it (ruling 3 is
-// light-background only). The three non-black backgrounds below are where a
-// prior fix-round conflated "3:1 target" with "isLight" and applied 3:1 even
-// here, leaving non-bold text under 4.5:1 (e.g. #ffaf00 on #3b4252 measured
-// 4.05, not the 4.54 that #ffbe5b — what 62c4d1e actually resolved to —
-// reaches). The expected hexes are pinned to values measured directly against
-// 62c4d1e, not recomputed here, so this test can't drift with the production
-// code it's guarding.
+// On dark backgrounds attention targets textContrast (4.5:1) like every other
+// role: accentContrast (3:1) only ever applies when isLight(bg), so this holds
+// even on backgrounds far from black. helpKeyStyle and numStyle stay non-bold
+// (moreStyle stays bold, as it always is), and dimStyle keeps the dim role's
+// foreground rather than losing it, which only happens on a light background.
+// The pinned hexes are what 4.5:1 resolves to on each background, not the
+// unadjusted base colour #ffaf00: Nord's Polar Night (#3b4252) and Dracula's
+// background (#44475a) both need a lighter shade to clear it.
 func TestAttentionUnchangedOnDark(t *testing.T) {
 	useProfile(t, termenv.TrueColor)
 	want := map[string]string{
 		"#000000": "#ffaf00", "#1e1e1e": "#ffaf00",
 		"#3b4252": "#ffbe5b", // Nord's Polar Night background
 		"#44475a": "#ffcd88", // Dracula's background
-		"#6f6f6f": "#000000", // dark by the 0.179 luminance threshold, though pale grey to the eye
 	}
 	for bgHex, wantHex := range want {
 		bg := mustHex(t, bgHex)
@@ -388,7 +384,7 @@ func TestAttentionUnchangedOnDark(t *testing.T) {
 
 		for name, s := range map[string]lipgloss.Style{"helpKey": helpKeyStyle, "num": numStyle, "more": moreStyle} {
 			if got := fgOf(t, name, s); got.Hex() != wantHex {
-				t.Errorf("on %s %sStyle = %s, want %s (62c4d1e's colour, unchanged)", bgHex, name, got.Hex(), wantHex)
+				t.Errorf("on %s %sStyle = %s, want %s (where textContrast resolves)", bgHex, name, got.Hex(), wantHex)
 			}
 		}
 		if helpKeyStyle.GetBold() {
@@ -424,6 +420,44 @@ func TestAttentionANSI256ReachesThreeToOne(t *testing.T) {
 		fg := termenv.ConvertToRGB(termenv.ANSI256Color(idx))
 		if c := worstContrast(fg, bg, sel); c < accentContrast {
 			t.Errorf("%sStyle on #cee8be (ANSI256) reaches only %.2f, want %.1f", name, c, accentContrast)
+		}
+	}
+}
+
+// On a mid-grey background the toward-text selection can leave no colour able
+// to reach textContrast against both the background and the selection (see
+// TestPickMidGreyFallsBack): #6f6f6f and #808080 are on opposite sides of
+// lightLuminance, and #767676 sits close enough to it to be worth checking
+// too. selectionForBackground flips the selection to the far side of the
+// background in that case, which is enough to restore the target here, in
+// both colour profiles. dimStyle is skipped on the two backgrounds classified
+// light — it carries no foreground there, nothing to check — but not on
+// #6f6f6f, which is dark by the luminance threshold despite looking pale.
+func TestMidGreyReachesTargetViaFlip(t *testing.T) {
+	for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256} {
+		useProfile(t, profile)
+		for _, bgHex := range []string{"#6f6f6f", "#808080", "#767676"} {
+			bg := mustHex(t, bgHex)
+			SetBackground(bg)
+			sel := colourOf(t, "selection", selStyle.GetBackground())
+
+			if c := contrast(sel, bg); c < selectionVisible {
+				t.Errorf("[%v] on %s the selection reaches only %.2f:1 against the background, want >= %.1f",
+					profile, bgHex, c, selectionVisible)
+			}
+
+			targets := styleTargets(bg)
+			for name, s := range textStyles() {
+				if name == "dim" && isLight(bg) {
+					continue
+				}
+				if c := worstContrast(fgOf(t, name, s), bg, sel); c < targets[name] {
+					t.Errorf("[%v] on %s %sStyle reaches only %.2f, want %.1f", profile, bgHex, name, c, targets[name])
+				}
+			}
+			if c := worstContrast(fgOf(t, "divider", dividerStyle), bg, sel); c < ruleContrast {
+				t.Errorf("[%v] on %s dividerStyle reaches only %.2f, want %.1f", profile, bgHex, c, ruleContrast)
+			}
 		}
 	}
 }
