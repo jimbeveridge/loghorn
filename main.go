@@ -78,7 +78,7 @@ func main() {
 	flag.Parse()
 
 	if *filterMode {
-		if err := headless.Run(os.Stdin, os.Stdout); err != nil {
+		if err := headless.Run(os.Stdin, os.Stdout, nil); err != nil {
 			fmt.Fprintln(os.Stderr, "loghorn:", err)
 			os.Exit(1)
 		}

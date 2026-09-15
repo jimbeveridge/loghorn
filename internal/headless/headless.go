@@ -9,11 +9,16 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/ingest"
 )
 
-// Run reads lines from r and writes the original bytes of each important line
-// (plus a newline) to w. Output is byte-for-byte faithful to the input line.
-func Run(r io.Reader, w io.Writer) error {
+// Run reads records from r and writes the original bytes of each important one
+// (plus a newline) to w. Output is byte-for-byte faithful to the input. If sink
+// is non-nil it receives every record first, important or not — the log file
+// keeps the whole stream. The slice passed to sink is only valid during the call.
+func Run(r io.Reader, w io.Writer, sink func(rec []byte)) error {
 	var writeErr error
 	err := ingest.Records(r, func(line []byte) {
+		if sink != nil {
+			sink(line)
+		}
 		if writeErr != nil {
 			return
 		}
