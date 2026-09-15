@@ -60,8 +60,8 @@ is kept as loghorn-YYYY-MM-DD.log, and days before the last three are deleted.
 Input read from a file (loghorn < file) is not recorded — it's already on disk.
 loghorn will not run from inside its own source tree. Read the stored files
 back with -historical: oldest day first, then today, read-only, stopping at the
-end rather than following the live file. -historical refuses piped or
-redirected stdin, so from cron or CI pass </dev/null.
+end rather than following the live file. -historical refuses piped stdin or
+stdin redirected from a file, so from cron or CI pass </dev/null.
 
 Examples:
   loghorn -- npm run dev

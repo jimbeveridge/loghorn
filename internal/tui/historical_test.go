@@ -134,8 +134,10 @@ func TestHistoricalHeldShowsBacklog(t *testing.T) {
 	if !strings.Contains(got, "HISTORICAL") {
 		t.Fatalf("bar should read HISTORICAL while held with a backlog:\n%s", got)
 	}
-	if !strings.Contains(got, "▼") {
-		t.Fatalf("bar should show the waiting counter while held:\n%s", got)
+	// ▼ alone would also match the empty "▼0 of 0 waiting" printed the instant
+	// the shade comes down, so assert the actual count once rows have arrived.
+	if !strings.Contains(got, "▼3 of 3 waiting") {
+		t.Fatalf("bar should show 3 of 3 waiting:\n%s", got)
 	}
 }
 
@@ -158,5 +160,29 @@ func TestHistoricalHelpOverlayWording(t *testing.T) {
 	}
 	if !strings.Contains(got, "newest record") {
 		t.Fatalf("historical mode help should describe the handle by the newest record:\n%s", got)
+	}
+}
+
+// The help overlay's Producer section says "reading a pipe" for any run with
+// no child, which is wrong for -historical: it reads stored files and
+// refuses a command entirely, so "start as loghorn -- <command>" is not
+// applicable advice. Historical mode gets its own note; live/pipe mode's
+// wording is unchanged.
+func TestHistoricalHelpOverlayProducerWording(t *testing.T) {
+	live := NewModel(nil, 100)
+	live.width, live.height = 100, 20
+	if got := live.helpContent(); !strings.Contains(got, "reading a pipe") {
+		t.Fatalf("pipe mode help should still say reading a pipe:\n%s", got)
+	}
+
+	m := NewModel(nil, 100)
+	m.width, m.height = 100, 20
+	m.SetHistorical()
+	got := m.helpContent()
+	if strings.Contains(got, "reading a pipe") {
+		t.Fatalf("historical mode help should not say reading a pipe:\n%s", got)
+	}
+	if !strings.Contains(got, "stored logs") {
+		t.Fatalf("historical mode help should mention the stored logs:\n%s", got)
 	}
 }

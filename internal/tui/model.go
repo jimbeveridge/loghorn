@@ -603,11 +603,16 @@ func (m Model) helpContent() string {
 	row("y", "copy the entry to the clipboard")
 
 	head("Producer")
-	if m.child != nil {
+	switch {
+	case m.child != nil:
 		row("f", "send keys to the child until esc")
 		row("Q", "quit, leave the child running")
 		note("q also stops the child's process group")
-	} else {
+	case m.historical:
+		// -historical is a reader, not a launcher — it refuses a command
+		// entirely (main.go) — so the pipe-mode advice below would be wrong.
+		note("reading stored logs (-historical) · f/Q need a launched command")
+	default:
 		note("reading a pipe · start as loghorn -- <command> for f and Q")
 	}
 
