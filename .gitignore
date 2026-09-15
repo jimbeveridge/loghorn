@@ -38,3 +38,10 @@ go.work.sum
 
 # Local log samples used for manual testing
 /docs/backend.log
+
+# The always-on log file, its daily archives and its lock, written next to the
+# binary (docs/superpowers/specs/2026-09-15-log-file-design.md). Anchored, so a
+# new .log under testdata/ is not hidden.
+/loghorn.log
+/loghorn-*.log
+/loghorn.lock
