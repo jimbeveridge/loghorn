@@ -3,6 +3,7 @@ package logfile
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,8 +140,19 @@ func TestRolloverFailureStopsTheWriter(t *testing.T) {
 	if err := w.Write([]byte("b")); err != nil {
 		t.Fatalf("later Writes must be silent no-ops, got %v", err)
 	}
+	if got := readFile(t, filepath.Join(dir, "loghorn.log")); strings.Contains(got, "a") || strings.Contains(got, "b") {
+		t.Fatalf("a stopped writer must have written nothing, got %q", got)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close after a stop: %v", err)
 	}
-	openAt(t, dir, at(2026, 9, 15, 1, 0)) // the lock was released
+
+	// loghorn.log's mtime is whatever the real clock was when Open created it
+	// above, not the fake clock the test runs on; reopening must not depend on
+	// the real clock having reached 2026-09-15.
+	fakeNow := at(2026, 9, 15, 1, 0)
+	if err := os.Chtimes(filepath.Join(dir, "loghorn.log"), fakeNow, fakeNow); err != nil {
+		t.Fatal(err)
+	}
+	openAt(t, dir, fakeNow) // the lock was released
 }

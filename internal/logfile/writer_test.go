@@ -141,6 +141,25 @@ func TestOpenAppendsLeftoverOntoExistingArchive(t *testing.T) {
 	if got := readFile(t, filepath.Join(dir, "loghorn-2026-09-14.log")); got != "first\nsecond\n" {
 		t.Fatalf("archive = %q", got)
 	}
+	if got := readFile(t, filepath.Join(dir, "loghorn.log")); got != "" {
+		t.Fatalf("loghorn.log = %q, want empty: today's file should have restarted", got)
+	}
+}
+
+// Clock skew can leave a leftover loghorn.log with a mtime in the future. It
+// must still be treated as today's file, not archived under tomorrow's date.
+func TestOpenKeepsLeftoverWithFutureMtime(t *testing.T) {
+	dir := t.TempDir()
+	putFile(t, filepath.Join(dir, "loghorn.log"), "old\n", at(2026, 9, 16, 8, 0))
+	w, _ := openAt(t, dir, at(2026, 9, 15, 10, 0))
+	write(t, w, "new")
+
+	if got := readFile(t, filepath.Join(dir, "loghorn.log")); got != "old\nnew\n" {
+		t.Fatalf("loghorn.log = %q, want old content preserved and appended to", got)
+	}
+	if exists(filepath.Join(dir, "loghorn-2026-09-16.log")) {
+		t.Fatalf("a future mtime must not be archived as tomorrow")
+	}
 }
 
 func TestOpenPrunesBeforeTodayMinusThree(t *testing.T) {
@@ -200,6 +219,28 @@ func TestOpenKeepsExistingGitignore(t *testing.T) {
 
 	if got, want := readFile(t, filepath.Join(dir, ".gitignore")), "custom\n"; got != want {
 		t.Fatalf(".gitignore = %q, want %q", got, want)
+	}
+}
+
+// A parent directory that forbids creating .loghorn must fail the open
+// itself, not be mistaken for another loghorn already holding the lock.
+func TestOpenFailsWhenLoghornDirCannotBeCreated(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can create files regardless of mode")
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0o700) })
+
+	_, err := Open(filepath.Join(parent, ".loghorn"), (&fakeClock{t: at(2026, 9, 15, 10, 0)}).Now, la)
+	if err == nil {
+		t.Fatalf("Open should fail when .loghorn can't be created")
+	}
+	var locked *LockedError
+	if errors.As(err, &locked) {
+		t.Fatalf("a directory-creation failure must not read as *LockedError, got %v", err)
 	}
 }
 

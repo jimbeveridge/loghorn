@@ -74,24 +74,31 @@ func Open(dir string, clock func() time.Time, loc *time.Location) (*Writer, erro
 // .loghorn ignores itself (the .pytest_cache trick) and a project's own
 // .gitignore need not be edited to keep `git status` clean. O_EXCL makes this
 // a no-op — not an overwrite — when the file is already there, whether loghorn
-// wrote it on an earlier run or a user edited it. If the write fails after a
-// successful create, the file is closed and removed to avoid leaving a broken
-// zero-length .gitignore behind, which O_EXCL would prevent from ever being repaired.
+// wrote it on an earlier run or a user edited it. If the write or the final
+// close fails after a successful create, the file is closed (if not already)
+// and removed to avoid leaving a broken .gitignore behind that O_EXCL would
+// then prevent from ever being repaired — a filesystem can report a write
+// failure only at close, so the file could be partial even when WriteString
+// itself reported no error.
 func writeGitignore(dir string) error {
-	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	path := filepath.Join(dir, ".gitignore")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, fs.ErrExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	_, err = f.WriteString("*\n")
-	if err != nil {
+	if _, err := f.WriteString("*\n"); err != nil {
 		f.Close()
-		os.Remove(filepath.Join(dir, ".gitignore"))
+		os.Remove(path)
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 // start readies today's file. A leftover's day is its mtime: while loghorn runs
@@ -130,6 +137,9 @@ func (w *Writer) Write(rec []byte) error {
 	}
 	if err := w.write(rec); err != nil {
 		if w.f != nil {
+			// The Close error is ignored: the write error above is already
+			// what stops the Writer and is what gets returned, and there is
+			// no better action to take on a close failure here.
 			w.f.Close()
 			w.f = nil
 		}
@@ -138,6 +148,10 @@ func (w *Writer) Write(rec []byte) error {
 	return nil
 }
 
+// write appends rec, rolling over first if a local midnight has passed. On a
+// rollover failure it may leave w.f nil: rollover has already closed the old
+// file before attempting the archive, so a failure there means there is no
+// open file left, and the caller (Write) stops the Writer rather than retry.
 func (w *Writer) write(rec []byte) error {
 	if now := w.clock(); !now.Before(w.next) {
 		if err := w.rollover(w.midnight(now)); err != nil {
@@ -179,6 +193,9 @@ func (w *Writer) Close() error {
 		w.f = nil
 	}
 	if w.lock != nil {
+		// The lock file's own close error is ignored: there is nothing to
+		// act on, and the kernel releases the flock when the descriptor
+		// closes regardless of whether Close itself reports an error.
 		w.lock.Close()
 		w.lock = nil
 	}
@@ -213,6 +230,8 @@ func (w *Writer) archive(day time.Time) error {
 	return os.Remove(src)
 }
 
+// appendFile copies src's contents onto the end of dst, which must already
+// exist. It leaves src in place; the caller removes it once this succeeds.
 func appendFile(dst, src string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -239,7 +258,7 @@ func (w *Writer) prune(today time.Time) error {
 		return err
 	}
 	for _, e := range entries {
-		day, ok := w.archiveDay(e.Name())
+		day, ok := parseArchiveDay(e.Name(), w.loc)
 		if !ok || !day.Before(cutoff) {
 			continue
 		}
@@ -252,8 +271,8 @@ func (w *Writer) prune(today time.Time) error {
 
 // archiveName reports whether name has the archive shape
 // loghorn-<date>.log, returning the date portion for the caller to parse.
-// Shared by prune, via (*Writer).archiveDay below, and by HistoricalFiles in
-// history.go, so the two never drift apart on what counts as an archive.
+// Shared by parseArchiveDay below and by HistoricalFiles in history.go, so
+// the two never drift apart on what counts as an archive.
 func archiveName(name string) (string, bool) {
 	s, ok := strings.CutPrefix(name, archivePrefix)
 	if !ok {
@@ -262,16 +281,18 @@ func archiveName(name string) (string, bool) {
 	return strings.CutSuffix(s, archiveSuffix)
 }
 
-// archiveDay parses the date out of an archive's name, in the writer's own
-// location. It must be: prune compares the result against a midnight
-// computed from the same clock and location, and parsing the two ends in
-// different zones would shift the cutoff by the zone offset.
-func (w *Writer) archiveDay(name string) (time.Time, bool) {
+// parseArchiveDay parses the date out of an archive's name, in loc.
+// prune must parse in the writer's own location: it compares the result
+// against a midnight computed from the same clock and location, and parsing
+// the two ends in different zones would shift the cutoff by the zone offset.
+// HistoricalFiles only orders archive dates against each other, so it passes
+// time.UTC — a fixed epoch is enough to sort them correctly.
+func parseArchiveDay(name string, loc *time.Location) (time.Time, bool) {
 	s, ok := archiveName(name)
 	if !ok {
 		return time.Time{}, false
 	}
-	day, err := time.ParseInLocation(dateLayout, s, w.loc)
+	day, err := time.ParseInLocation(dateLayout, s, loc)
 	if err != nil {
 		return time.Time{}, false
 	}
