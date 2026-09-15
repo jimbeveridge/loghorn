@@ -1,7 +1,9 @@
 package logfile
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -30,7 +32,7 @@ func TestHistoricalFilesOrder(t *testing.T) {
 		filepath.Join(dir, "loghorn-2026-09-14.log"),
 		filepath.Join(dir, "loghorn.log"),
 	}
-	if !equalStringSlices(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("HistoricalFiles = %v, want %v", got, want)
 	}
 }
@@ -49,7 +51,7 @@ func TestHistoricalFilesWithoutCurrent(t *testing.T) {
 		filepath.Join(dir, "loghorn-2026-09-12.log"),
 		filepath.Join(dir, "loghorn-2026-09-13.log"),
 	}
-	if !equalStringSlices(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("HistoricalFiles = %v, want %v", got, want)
 	}
 }
@@ -65,14 +67,32 @@ func TestHistoricalFilesEmptyDir(t *testing.T) {
 	}
 }
 
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+// A directory named like an archive is not a stored log, however it's named.
+func TestHistoricalFilesSkipsDirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "loghorn-2026-09-13.log"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
+	putFile(t, filepath.Join(dir, "loghorn-2026-09-14.log"), "x\n", time.Time{})
+
+	got, err := HistoricalFiles(dir)
+	if err != nil {
+		t.Fatalf("HistoricalFiles: %v", err)
 	}
-	return true
+	want := []string{filepath.Join(dir, "loghorn-2026-09-14.log")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("HistoricalFiles = %v, want %v", got, want)
+	}
+}
+
+// No loghorn has ever run there; that's not an error.
+func TestHistoricalFilesMissingDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	got, err := HistoricalFiles(dir)
+	if err != nil {
+		t.Fatalf("HistoricalFiles: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("HistoricalFiles = %v, want nil", got)
+	}
 }

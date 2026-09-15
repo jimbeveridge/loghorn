@@ -34,10 +34,18 @@ func HistoricalFiles(dir string) ([]string, error) {
 			haveCurrent = true
 			continue
 		}
+		if e.IsDir() {
+			// A directory can't be a stored log no matter what it's named;
+			// skip it before archiveDate gets a chance to match its name.
+			continue
+		}
 		if _, ok := archiveDate(name); ok {
 			archives = append(archives, name)
 		}
 	}
+	// os.ReadDir already returns entries in name order, which is date order
+	// for loghorn-YYYY-MM-DD.log names, so this sort is defensive rather than
+	// load-bearing; it's kept in case that ever changes.
 	sort.Slice(archives, func(i, j int) bool {
 		di, _ := archiveDate(archives[i])
 		dj, _ := archiveDate(archives[j])
@@ -54,18 +62,8 @@ func HistoricalFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// archiveDate parses the date out of an archive's name with no location.
-// Unlike (*Writer).archiveDay, HistoricalFiles never compares the result
-// against a clock-derived cutoff — it only orders archive dates against each
-// other — so a fixed epoch is enough to sort them correctly.
+// archiveDate parses the date out of an archive's name for sort order only;
+// see parseArchiveDay in writer.go for why UTC is enough here.
 func archiveDate(name string) (time.Time, bool) {
-	s, ok := archiveName(name)
-	if !ok {
-		return time.Time{}, false
-	}
-	day, err := time.Parse(dateLayout, s)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return day, true
+	return parseArchiveDay(name, time.UTC)
 }
