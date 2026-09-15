@@ -298,7 +298,8 @@ the search has no profile branches of its own.
   so `dimStyle`'s "use the terminal's own foreground" fallback can't be guaranteed readable
   right at that boundary, unlike every colour loghorn picks itself. The flip changes this
   case rather than leaving it alone, and not always for the better: on a light grey that
-  flips, the selection moves lighter, further from the terminal's own (unknown) foreground —
+  flips, the selection moves lighter — further from a dark terminal foreground and closer to a
+  light one —
   measured on `#808080`, black text on the selected row goes from 4.00:1 toward-text to
   7.01:1 flipped, but white goes from 5.25:1 to 3.00:1. A dark terminal foreground on that
   row reads better after the flip; a light one reads worse. `dimStyle` carries no colour at
