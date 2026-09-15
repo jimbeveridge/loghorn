@@ -1029,17 +1029,21 @@ func (m Model) listLines(width int) []listLine {
 		// timestamp, and one separating space.
 		ts := row.Entry.Received.Format(tsLayout)
 		msg := truncate(flatten(row.Entry.Message), width-len(ts)-3)
-		switch row.Kind {
-		case RowImportant:
-			msg = impStyle.Render(msg)
-		case RowContext:
-			msg = dimStyle.Render(msg)
+		msgStyle := impStyle
+		if row.Kind == RowContext {
+			msgStyle = dimStyle
 		}
-		line := tsStyle.Render(ts) + " " + msg
+
 		prefix := "  "
+		var line string
 		if i == m.selected {
+			// Each segment carries the selection background itself (selBg)
+			// rather than being nested inside selStyle.Render: see selBg's
+			// comment for why nesting only highlights the first segment.
 			prefix = "▶ "
-			line = selStyle.Render(line)
+			line = selBg(tsStyle).Render(ts) + selStyle.Render(" ") + selBg(msgStyle).Render(msg)
+		} else {
+			line = tsStyle.Render(ts) + " " + msgStyle.Render(msg)
 		}
 		lines = append(lines, listLine{text: prefix + line, row: i})
 	}
@@ -1065,9 +1069,9 @@ func (m Model) statusBar() string {
 		if m.child != nil {
 			name = m.child.Name()
 		}
-		return "▶ " + selStyle.Render(moreStyle.Render(
+		return "▶ " + selBg(moreStyle).Render(
 			fmt.Sprintf("loghorn %s · FORWARDING — every key goes to %s · esc to stop",
-				m.spinner(), name)))
+				m.spinner(), name))
 	}
 
 	if m.showHelp {
@@ -1105,72 +1109,79 @@ func (m Model) statusBar() string {
 		// so LIVE/HELD would be misleading either way the shade sits.
 		mode = "HISTORICAL"
 	}
-	base := statusStyle.Render(fmt.Sprintf(
+	// The handle carries the cursor and the selected-row highlight while it
+	// holds it (live), so every segment below is built with the background
+	// already folded in via selBg rather than wrapped in selStyle.Render
+	// afterward — nesting would only highlight the first segment; see selBg.
+	st, mo := statusStyle, moreStyle
+	if live {
+		st, mo = selBg(statusStyle), selBg(moreStyle)
+	}
+
+	base := st.Render(fmt.Sprintf(
 		"loghorn %s · %s · %s lines · %d shown", m.spinner(), mode, comma(m.ingested), len(m.rows)))
 
 	var more string
 	if start, _ := m.listWindow(); start > 0 {
-		more += moreStyle.Render(fmt.Sprintf(" · ▲%d", start))
+		more += mo.Render(fmt.Sprintf(" · ▲%d", start))
 	}
 	if !live {
 		// What is piling up behind the shade. Both figures measure from the
 		// moment it came down, so the ratio shows how much of the stream the
 		// display filter is holding back.
-		more += moreStyle.Render(fmt.Sprintf(" · ▼%d of %s waiting",
+		more += mo.Render(fmt.Sprintf(" · ▼%d of %s waiting",
 			len(m.rows)-m.heldRows, comma(m.ingested-m.heldLines)))
 	}
 
 	// A dead producer is worth saying loudly — the logs on screen are the last
 	// thing it did.
 	if m.childExited {
-		more += moreStyle.Render(fmt.Sprintf(" · child exited (%d)", m.childCode))
+		more += mo.Render(fmt.Sprintf(" · child exited (%d)", m.childCode))
 	}
 
 	// Active filters are named; the default (failures only, unpinned) says
 	// nothing, so the bar stays quiet until something is actually narrowing or
 	// widening what you see.
 	if m.showAll {
-		more += moreStyle.Render(" · ALL")
+		more += mo.Render(" · ALL")
 	}
 	if m.pinned {
 		if m.corrID == "" {
-			more += moreStyle.Render(" · uncorrelated")
+			more += mo.Render(" · uncorrelated")
 		} else {
-			more += moreStyle.Render(" · id:" + shortID(m.corrID))
+			more += mo.Render(" · id:" + shortID(m.corrID))
 		}
 	}
 	if m.find != "" {
-		more += moreStyle.Render(" · /" + shortFind(m.find))
+		more += mo.Render(" · /" + shortFind(m.find))
 	}
 
 	// Mouse capture is state, not a hint, and only worth saying when it is off —
 	// that is the surprising case, and the confirmation you want after pressing
 	// 'm' to select text.
 	if !m.mouse {
-		more += moreStyle.Render(" · mouse:off")
+		more += mo.Render(" · mouse:off")
 	}
 
 	// Say so only when records aren't reaching the log file.
 	if m.logFileOff != "" {
-		more += moreStyle.Render(" · no log file (" + m.logFileOff + ")")
+		more += mo.Render(" · no log file (" + m.logFileOff + ")")
 	}
 
 	if m.notice != "" {
-		more += moreStyle.Render(" · " + m.notice)
+		more += mo.Render(" · " + m.notice)
 	}
 
 	// Only the keys reached for constantly earn a place here; the rest ('m',
 	// 'f', 'Q', 'g'/'G') live behind '?', which is advertised so they stay
 	// discoverable. State is rendered before hints, so a narrow window loses
 	// hints rather than state.
-	tail := statusStyle.Render(fmt.Sprintf(
+	tail := st.Render(fmt.Sprintf(
 		" · j/k · spc %s · enter open · ? help · q quit", toggleWord(live, m.historical)))
 
-	// The handle carries the cursor and the selected-row highlight while it
-	// holds it, so "where is the cursor" has one consistent answer.
 	line := base + more + tail
 	if live {
-		return "▶ " + selStyle.Render(line)
+		return "▶ " + line
 	}
 	return "  " + line
 }

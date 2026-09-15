@@ -349,3 +349,12 @@ func SetBackground(bg colorful.Color) {
 	sqlTypeStyle = fg(sqlTypeBase, textContrast)
 	selStyle = lipgloss.NewStyle().Background(selName)
 }
+
+// selBg is s with the selected row's background added, for rendering a segment
+// that must keep its own foreground while joining the row's highlight. lipgloss
+// always closes a Render with a full SGR reset, so nesting an already-rendered
+// segment inside selStyle.Render — as the list row and status bar once did —
+// cancels the background at that reset, and everything after the first segment
+// goes unhighlighted. Giving each segment the background itself, and rendering
+// it in one call, avoids the embedded reset altogether.
+func selBg(s lipgloss.Style) lipgloss.Style { return s.Background(selStyle.GetBackground()) }
