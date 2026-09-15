@@ -37,7 +37,8 @@ RGB. The reply arrives on the terminal loghorn draws on, not on stdin, so a pipe
 producer doesn't interfere. It must happen before Bubble Tea starts reading `/dev/tty`,
 or the reply would be read as keystrokes.
 
-- No reply (the terminal doesn't support OSC 11, or a multiplexer swallowed it): termenv
+- No reply (the terminal doesn't support OSC 11), or no query at all (inside tmux or screen,
+  below): termenv
   falls back to the `COLORFGBG` environment variable, and failing that to black. loghorn
   uses whatever termenv returns — there is no separate "no reply" signal to act on — so an
   unanswered query yields the palette for `#000000`, which is today's look.
@@ -54,8 +55,9 @@ or the reply would be read as keystrokes.
 | `dark` | `#000000` |
 | `#rrggbb` | exactly that colour, no query sent |
 
-The explicit values are for terminals that don't answer — tmux and screen often don't
-pass OSC 11 through. The hex form costs one parse branch and is the precise fix when you
+The explicit values are for terminals that don't answer, and for tmux and screen: termenv
+doesn't send the query at all when `TERM` starts with `screen` or `tmux`, so loghorn falls
+back to black there. The hex form costs one parse branch and is the precise fix when you
 know your background: `light` computes against white, which is lighter than `#cee8be`, so
 contrast on the real background would land a little under target. Anything else exits 2
 with `loghorn: --theme must be auto, light, dark or #rrggbb`.
@@ -86,7 +88,8 @@ one step apart and indistinguishable.
 
 ### Choosing a colour: same hue, adjusted lightness
 
-Each role keeps its hue and chroma; only lightness moves.
+Each role keeps its hue; lightness moves, and chroma gives way only where sRGB can't show the
+colour at that lightness.
 
 1. **Which way is readable.** The background is *light* if its relative luminance is above
    0.179 — the point where black text and white text contrast with it equally. On a light
@@ -98,11 +101,21 @@ Each role keeps its hue and chroma; only lightness moves.
 3. **Each foreground role.** Start at the base colour. If its contrast against *both* the
    background and the selection background reaches the target, keep it — so on a typical
    dark terminal the colours barely change. Otherwise step LCh lightness by 0.02 in the
-   readable direction, clamping chroma to the sRGB gamut, and take the first step that
-   reaches the target against both. If none does, use black or white, whichever contrasts
-   more.
+   readable direction and take the first step that reaches the target against both. A step
+   outside the sRGB gamut has its chroma reduced, by bisection at the same hue and
+   lightness, until it fits; clipping each RGB channel instead would move the hue (the
+   accent swung 19° on `#cee8be`). If no step reaches the target, use black or white,
+   whichever contrasts more.
 4. **Targets.** 4.5:1 for every text role. 3:1 for `rule`, which is a line, not text
    (the WCAG non-text threshold).
+5. **Judge what the terminal shows.** On a truecolor terminal that is the colour rounded to
+   8 bits a channel. On a 256-colour terminal it is the nearest xterm index from 16 to 255
+   by CIE Lab distance — 0–15 are the theme's own colours, which loghorn doesn't know — so
+   the selection background and every candidate are quantised before their contrast is
+   judged. If the selection quantises to the index nearest the background itself, its
+   nudge continues in 0.02 steps until it doesn't: on `#cee8be` the selection is 108
+   `#87af87` rather than 151. The background is never quantised; the terminal draws it
+   exactly.
 
 Checking against the selection background as well matters because the status bar and the
 selected row are drawn on it: the bar's own text is `accent`, and a selected important
@@ -128,8 +141,16 @@ point. The package's own initialisation calls it with `#000000`, so tests and an
 that never calls `SetBackground` get the dark palette they get today. The 17 style
 variables move into `palette.go`, so one file declares and assigns them all.
 
-The colours are hex values; lipgloss already degrades hex to the nearest 256- or
-16-colour index for terminals with a smaller profile.
+The palette is resolved for lipgloss's colour profile, which lipgloss reads from the
+environment (`TERM`, `COLORTERM`), not by asking the terminal. Truecolor terminals get hex.
+256-colour terminals get index numbers from loghorn's own quantiser, which lipgloss passes
+through untouched: given hex, lipgloss v1.1 quantises through termenv v0.16's
+`hexToANSI256Color`, whose grey-ramp candidate is computed from cube indices instead of
+channel values and so is always 232 `#080808` — the selected row nearly vanished on black,
+and important lines turned near-black on white. 16-colour and no-colour profiles get hex,
+which lipgloss maps to the theme's own colours or drops. A small `display` function — the
+colour actually shown, and the name lipgloss is given for it — carries the difference, so
+the search has no profile branches of its own.
 
 ## Testing
 
@@ -139,6 +160,18 @@ The colours are hex values; lipgloss already degrades hex to the nearest 256- or
   background, for each of `#cee8be`, `#ffffff`, `#fdf6e3` (Solarized light), `#1e1e1e` and
   `#000000`. A table test over roles × backgrounds, checking chosen colours by contrast
   rather than rendered escape codes.
+- **Hue holds:** in truecolor, on `#cee8be` and `#ffffff`, every chromatic role (accent,
+  attention, important, string, boolean, sqlKeyword, sqlType) resolves within 1° of its base
+  hue. Near-grey results are skipped: their hue is undefined.
+- **256 colours:** the quantiser maps every xterm colour from 16 to 255 to its own index
+  (`#000000`→16, `#ffffff`→231, `#303030`→236, `#5faf5f`→71, `#00afff`→39) and never
+  returns 0–15. Under the ANSI256 profile, on `#000000`, `#1e1e1e`, `#ffffff`, `#cee8be` and
+  `#fdf6e3`, every style names an index from 16 to 255 whose colour reaches its target
+  against the background and the selection's index, and the selection's index isn't the one
+  nearest the background. Tests that care about the profile set it and restore it, so they
+  don't depend on the environment.
+- **Every style is wired to its role:** at package init each of the 15 text styles is its
+  role's base colour, and the divider is lightened from its base to reach 3:1.
 - **Mid grey falls back correctly:** on `#808080` no colour reaches 4.5:1 against both the
   background and its darker selection shade (black manages 5.3:1 and 4.0:1). The test
   asserts each text role is whichever of black and white contrasts more, not that it meets
@@ -158,13 +191,20 @@ The colours are hex values; lipgloss already degrades hex to the nearest 256- or
 
 ## Known limits, accepted
 
-- The contrast guarantee holds only for truecolor and 256-colour terminals. On a
-  16-colour terminal lipgloss maps each colour to one of the terminal's own 16, whose
+- The contrast guarantee holds for truecolor and 256-colour terminals — on 256 colours
+  because loghorn quantises each colour itself and judges the index. It does not hold on a
+  16-colour terminal, where lipgloss maps each colour to one of the terminal's own 16, whose
   shades loghorn doesn't know.
+- On 256 colours hue is only approximate. The cube has no shades between 0 and 95 a
+  channel, so on a tinted light background, where text must be dark, several roles can
+  resolve to the same dark grey.
 - The background is read once. Switching the terminal between light and dark themes while
   loghorn runs keeps the palette it started with; restart it.
-- Inside tmux or screen the query often gets no reply, and loghorn falls back to the dark
-  palette. Pass `--theme`.
+- Inside tmux or screen termenv doesn't send the query at all — it skips it whenever `TERM`
+  starts with `screen` or `tmux` — so loghorn falls back to the dark palette. Pass `--theme`.
+- A terminal that answers neither OSC 11 nor the cursor-position request stalls startup for
+  termenv's 5-second timeout. So does an interactive piped producer reading the same
+  terminal, which can swallow the reply. `--theme` skips the query.
 - A mid-grey background, around `#808080`, has no colour that reaches 4.5:1 against both
   it and the selection shade; every text role falls back to black, at about 4:1 on a
   selected row.

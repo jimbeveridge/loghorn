@@ -402,7 +402,12 @@ func parseTheme(s string) (bg colorful.Color, ask bool, err error) {
 
 // terminalBackground asks the terminal for its background colour (OSC 11). With
 // no reply termenv falls back to COLORFGBG and then to black — the dark palette
-// loghorn has always drawn — so there is no separate failure to handle.
+// loghorn has always drawn — so there is no separate failure to handle. termenv
+// follows the query with a cursor-position request, which a terminal that ignores
+// OSC 11 still answers at once; a terminal that answers neither stalls startup
+// for termenv's 5 s timeout. So does an interactive piped producer reading the
+// same terminal, which can swallow the reply before termenv sees it. --theme
+// skips the query.
 func terminalBackground() colorful.Color {
 	return termenv.ConvertToRGB(termenv.NewOutput(os.Stdout).BackgroundColor())
 }
