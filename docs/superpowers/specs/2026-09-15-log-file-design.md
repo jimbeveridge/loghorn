@@ -158,7 +158,7 @@ lock. A PID-file lock ("is that PID still alive?") breaks when a crashed owner's
 reused by an unrelated process, and races when two instances start together; `flock`
 has neither problem.
 
-Only one loghorn is expected at a time. Without the lock, a second one would corrupt the
+Only one loghorn per project (start directory) is expected at a time. Without the lock, a second one would corrupt the
 first at midnight: both roll over, and one ends up writing to an unlinked file — a whole
 day of records silently discarded while its TUI looks fine. If a second one starts
 anyway:
@@ -168,7 +168,7 @@ anyway:
 - **With `--exclusive`** it exits 1 instead:
 
   ```
-  loghorn: another loghorn (pid 48213) is writing logs in /Users/jim/code/loghorn-wt
+  loghorn: another loghorn (pid 48213) is writing logs in /Users/jim/code/myproject/.loghorn
   ```
 
 The lock is taken before a child is launched, so `--exclusive` never starts

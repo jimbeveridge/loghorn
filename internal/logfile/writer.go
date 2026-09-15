@@ -74,7 +74,9 @@ func Open(dir string, clock func() time.Time, loc *time.Location) (*Writer, erro
 // .loghorn ignores itself (the .pytest_cache trick) and a project's own
 // .gitignore need not be edited to keep `git status` clean. O_EXCL makes this
 // a no-op — not an overwrite — when the file is already there, whether loghorn
-// wrote it on an earlier run or a user edited it.
+// wrote it on an earlier run or a user edited it. If the write fails after a
+// successful create, the file is closed and removed to avoid leaving a broken
+// zero-length .gitignore behind, which O_EXCL would prevent from ever being repaired.
 func writeGitignore(dir string) error {
 	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, fs.ErrExist) {
@@ -83,9 +85,13 @@ func writeGitignore(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	_, err = f.WriteString("*\n")
-	return err
+	if err != nil {
+		f.Close()
+		os.Remove(filepath.Join(dir, ".gitignore"))
+		return err
+	}
+	return f.Close()
 }
 
 // start readies today's file. A leftover's day is its mtime: while loghorn runs
