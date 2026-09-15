@@ -53,7 +53,8 @@ terminal, so it competes with loghorn for keystrokes and outlives it.
 
 Every record is also appended to loghorn.log next to the loghorn executable. Each
 finished day is kept as loghorn-YYYY-MM-DD.log, and days before the last three
-are deleted. loghorn will not run from inside its own source tree.
+are deleted. Input read from a file (loghorn < file) is not recorded — it's
+already on disk. loghorn will not run from inside its own source tree.
 
 Examples:
   loghorn -- npm run dev
@@ -91,6 +92,9 @@ func main() {
 	// Refuse to run from loghorn's own source tree before anything is launched or
 	// written. `go run .` only works from there, and it builds into a temporary
 	// directory Go deletes on exit, which would take the log files with it.
+	// A cwd that can't be resolved (e.g. it was deleted out from under the
+	// process) can't be the source tree either, so skip the check rather than
+	// fail the whole run over it.
 	if cwd, err := os.Getwd(); err == nil {
 		if root, ok := logfile.SourceTree(cwd); ok {
 			fmt.Fprintf(os.Stderr, "loghorn: refusing to run inside the loghorn source tree (%s);\nrun it from your project's directory\n", root)
@@ -99,8 +103,18 @@ func main() {
 	}
 
 	// The log file opens before --filter dispatch and before a child is launched,
-	// so --exclusive never starts a producer only to abandon it.
-	logs, locked := openLogFile(*exclusive)
+	// so --exclusive never starts a producer only to abandon it. Replaying a file
+	// (no command after `--`, and stdin is a regular file) is the exception: a
+	// file on disk is already recorded, and once measured, feeding loghorn.log
+	// back into loghorn through --filter appended every record it read to the
+	// same file it was reading, so it never reached EOF (3 lines became 357,965
+	// in one second). So a replay opens no log file at all: no lock, no write,
+	// no bar marker, no stderr message.
+	var logs *logfile.Writer
+	var locked *logfile.LockedError
+	if !(len(flag.Args()) == 0 && isRegularFile(os.Stdin)) {
+		logs, locked = openLogFile(*exclusive)
+	}
 	if logs != nil {
 		defer logs.Close()
 	}
@@ -240,14 +254,32 @@ func openLogFile(exclusive bool) (*logfile.Writer, *logfile.LockedError) {
 	}
 	w, err := logfile.Open(dir, time.Now, time.Local)
 	var locked *logfile.LockedError
-	if errors.As(err, &locked) && !exclusive {
-		return nil, locked
-	}
-	if err != nil {
+	if errors.As(err, &locked) {
+		if !exclusive {
+			return nil, locked
+		}
+		// Print the LockedError as-is: its own Error() is already the exact,
+		// unprefixed "another loghorn (pid N) is writing logs in <dir>" message.
 		fmt.Fprintln(os.Stderr, "loghorn:", err)
 		os.Exit(1)
 	}
+	if err != nil {
+		// "log file:" distinguishes this from every other startup error, so the
+		// user knows the side log — not the thing they're launching — is the
+		// problem.
+		fmt.Fprintln(os.Stderr, "loghorn: log file:", err)
+		os.Exit(1)
+	}
 	return w, nil
+}
+
+// isRegularFile reports whether f is a plain file rather than a pipe, socket,
+// or character device such as an interactive terminal. A Stat error counts as
+// not regular, so the caller falls back to treating it as something worth
+// recording rather than silently skipping a log file it can't identify.
+func isRegularFile(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // executableDir is the directory of the running binary with symlinks resolved,
