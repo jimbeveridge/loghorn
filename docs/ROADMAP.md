@@ -134,16 +134,19 @@ Shipped after v0 in response to real use:
   a few seconds, so a silent one is easy to miss entirely. The sound is the only part loghorn
   controls; making them persist means setting Script Editor (or terminal-notifier, which beeep
   prefers when it is on `PATH`) to "Alerts" in System Settings › Notifications.
-- **Always-on log file**: every record is appended, byte-for-byte, to `loghorn.log` next to the
-  executable, so the stream outlives both the ring and loghorn itself. Expiry works on whole
-  local days — a log can only be appended to — keeping today plus three archived
+- **Always-on log file**: every record is appended, as its original line(s), to `loghorn.log` next
+  to the executable, so the stream outlives both the ring and loghorn itself. Expiry works on
+  whole local days — a log can only be appended to — keeping today plus three archived
   `loghorn-YYYY-MM-DD.log` files, so a line lives 72–96 hours. A `loghorn.log` left from an earlier
   day is archived by its mtime at startup; while running, rollover happens at local midnight
   before the record that crosses it is written. A `flock` on `loghorn.lock` (which holds the
   owner's PID for the message) keeps a second loghorn from corrupting the first at midnight: it
   runs without a file and the bar says `no log file (pid N has it)`, or exits with `--exclusive`.
   loghorn refuses to run inside its own source tree, where `go run .` would write the logs into a
-  temporary directory. The files are gitignored, so a worktree's logs go with it. See
+  temporary directory. Input replayed from a file (`loghorn < file`) is not recorded — it's
+  already on disk, and recording it too was found to loop forever when the file was `loghorn.log`
+  itself. Both files are created owner-only (`0600`): the log can hold tokens and auth headers
+  from a dev server. The files are gitignored, so a worktree's logs go with it. See
   [the spec](superpowers/specs/2026-09-15-log-file-design.md).
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —

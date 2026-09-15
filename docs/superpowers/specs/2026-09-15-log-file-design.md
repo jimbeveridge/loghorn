@@ -47,10 +47,20 @@ hidden). `git worktree remove` does not count ignored files as untracked, so it 
 refuse, and a worktree's logs are deleted silently along with it — verified in a
 scratch repo.
 
-Each record is written as its original bytes plus `\n`, in one unbuffered `write`.
-YAML documents keep their leading `---` line, so `loghorn < loghorn-2026-09-14.log`
-replays exactly what was seen. Unbuffered keeps `tail -F` current and loses nothing if
-loghorn crashes; dev-server volume doesn't warrant buffering.
+All three are created `0600` (owner read/write only, via `OpenFile`'s mode argument, not a
+separate `chmod`). The log can hold days of dev-server output — tokens, auth headers — that
+other accounts on the box have no business reading; the lock file gets the same mode simply
+so every file this package creates is uniformly owner-only. Archiving keeps the mode: renaming
+onto a new archive name carries the source file's mode, and appending onto an existing archive
+opens that archive rather than creating it, so its own mode is untouched.
+
+Each record is written as its original bytes plus `\n`, in one unbuffered `write` — "original
+bytes" means as `ingest.Records` defines a record: it strips the line's trailing newline and, for
+CRLF input, the `\r` before it; the writer then adds back a single `\n`. So `loghorn <
+loghorn-2026-09-14.log` replays a record identical to what produced it — ingest strips the same
+`\r`/`\n` on the way back in, so nothing about the replay is lossy relative to the first pass.
+YAML documents keep their leading `---` line. Unbuffered keeps `tail -F` current and loses nothing
+if loghorn crashes; dev-server volume doesn't warrant buffering.
 
 ### Refusing to run from the loghorn source tree
 
@@ -72,6 +82,26 @@ no `golang.org/x/mod` dependency.
 Checking `go.mod` rather than `git config --get remote.origin.url` needs no `git` on
 `PATH`, no `origin` remote, and no matching of SSH vs HTTPS URL forms, and it still
 fires in a fork, whose module path is unchanged.
+
+### Replaying a file is not recorded
+
+Measured: `loghorn --filter < loghorn.log`, run from outside the repo so the source-tree
+check doesn't intervene, reads the log file while appending every record it reads back to
+that same file — so it never reaches EOF. Three lines became 357,965 lines (1.6 MB) in one
+second. Replaying an archive (`loghorn < loghorn-2026-09-14.log`) doesn't loop, since that
+file isn't the one being written to, but it does copy the whole day into today's file, which
+is just as unwanted.
+
+The fix is not to open the log file at all when a run is a replay: no command was given
+after `--` (so `flag.Args()` is empty) *and* stdin is a regular file (`os.Stat` on it, then
+`Mode().IsRegular()`; a `Stat` error counts as not regular, so an unidentifiable stdin is
+still recorded rather than silently dropped). A file already on disk is already recorded —
+writing it again adds nothing — while a pipe or a launched command's output only exists once,
+so those are still recorded. No log file being opened means no lock is taken, nothing is
+written, the TUI's bar carries no marker, and neither mode prints anything: not recording a
+replay is the unsurprising case, not a failure. This applies in both the TUI and `--filter`;
+`--exclusive` is moot when no log file is opened at all. The source-tree refusal above still
+runs first, unchanged.
 
 ### Single writer
 
@@ -202,6 +232,15 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 - Manual testing from the repo root (`./loghorn < docs/backend.log`) is now refused; run
   it from another directory.
 - Retention is 72–96 hours, not exactly 72.
+- A loghorn installed in a directory it can't write — `/usr/local/bin`, a Homebrew
+  keg — now exits at startup instead of running. The log file is always on and there is
+  no `--log-dir` to redirect it, so an unwritable install location is a hard stop, not
+  something to run through.
+- If the host's clock is wrong in a way that puts it days ahead — a VM started before its
+  first NTP sync, say — startup pruning trusts that clock and can delete archives that are
+  not actually old.
+- Input replayed from a file (`loghorn < file`) is not recorded, per the rule above; only
+  pipes and launched commands are.
 
 ## Out of scope
 
