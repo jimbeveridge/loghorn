@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/muesli/termenv"
 )
 
 func mustHex(t *testing.T, s string) colorful.Color {
@@ -69,8 +70,8 @@ func TestPickKeepsReadableBase(t *testing.T) {
 	bg := black
 	sel := selectionFor(bg)
 	for _, hex := range []string{"#00afff", "#ffaf00", "#ff5f5f", "#8a8a8a", "#5faf5f", "#ff87d7", "#af87ff", "#5fd7ff"} {
-		if got := pick(mustHex(t, hex), textContrast, bg, sel).Hex(); got != hex {
-			t.Errorf("pick(%s) on black = %s, want it unchanged", hex, got)
+		if got, _ := pick(mustHex(t, hex), textContrast, bg, sel, trueColor); got.Hex() != hex {
+			t.Errorf("pick(%s) on black = %s, want it unchanged", hex, got.Hex())
 		}
 	}
 }
@@ -91,7 +92,7 @@ func TestPickReachesTarget(t *testing.T) {
 		bg := mustHex(t, bgHex)
 		sel := selectionFor(bg)
 		for _, r := range roles {
-			got := pick(mustHex(t, r.base), r.target, bg, sel)
+			got, _ := pick(mustHex(t, r.base), r.target, bg, sel, trueColor)
 			if c := worstContrast(got, bg, sel); c < r.target {
 				t.Errorf("on %s, pick(%s) = %s reaches only %.2f, want %.1f", bgHex, r.base, got.Hex(), c, r.target)
 			}
@@ -114,7 +115,7 @@ func TestPickDarkensOnLightBackground(t *testing.T) {
 	bg := mustHex(t, "#cee8be")
 	base := mustHex(t, "#ffaf00")
 	sel := selectionFor(bg)
-	got := pick(base, textContrast, bg, sel)
+	got, _ := pick(base, textContrast, bg, sel, trueColor)
 	if luminance(got) >= luminance(base) {
 		t.Errorf("pick(#ffaf00) on #cee8be = %s, want darker than the base", got.Hex())
 	}
@@ -122,11 +123,12 @@ func TestPickDarkensOnLightBackground(t *testing.T) {
 	if got.Hex() == black.Hex() || got.Hex() == white.Hex() {
 		t.Errorf("pick(#ffaf00) on #cee8be = %s, want a shade of the base hue, not black/white", got.Hex())
 	}
-	// Hue must stay within 12 degrees of the base (allowing for clamping precision).
+	// Hue must stay within a degree of the base. Chroma is reduced to stay inside
+	// the sRGB gamut; clipping the channels instead would swing the hue.
 	baseH, _, _ := base.Hcl()
 	gotH, _, _ := got.Hcl()
-	if diff := hueDiff(baseH, gotH); diff > 12 {
-		t.Errorf("pick(#ffaf00) on #cee8be = %s; hue %g is %.1f degrees from base %g, want within 12°",
+	if diff := hueDiff(baseH, gotH); diff > 1 {
+		t.Errorf("pick(#ffaf00) on #cee8be = %s; hue %g is %.1f degrees from base %g, want within 1°",
 			got.Hex(), gotH, diff, baseH)
 	}
 }
@@ -136,7 +138,7 @@ func TestPickLightensOnDarkBackground(t *testing.T) {
 	bg := mustHex(t, "#1e1e1e")
 	base := mustHex(t, "#585858")
 	sel := selectionFor(bg)
-	got := pick(base, ruleContrast, bg, sel)
+	got, _ := pick(base, ruleContrast, bg, sel, trueColor)
 	if luminance(got) <= luminance(base) {
 		t.Errorf("pick(#585858) on #1e1e1e = %s, want lighter than the base", got.Hex())
 	}
@@ -155,9 +157,40 @@ func TestPickMidGreyFallsBack(t *testing.T) {
 	if worstContrast(white, bg, sel) > worstContrast(black, bg, sel) {
 		want = white
 	}
-	for _, hex := range []string{"#00afff", "#ffaf00", "#8a8a8a"} {
-		if got := pick(mustHex(t, hex), textContrast, bg, sel); got.Hex() != want.Hex() {
+	for _, hex := range []string{"#00afff", "#ffaf00", "#ff5f5f", "#8a8a8a", "#5faf5f", "#ff87d7", "#af87ff", "#5fd7ff"} {
+		if got, _ := pick(mustHex(t, hex), textContrast, bg, sel, trueColor); got.Hex() != want.Hex() {
 			t.Errorf("pick(%s) on #808080 = %s, want fallback %s", hex, got.Hex(), want.Hex())
+		}
+	}
+}
+
+// A colour that is exactly an xterm cube or grey-ramp entry maps to its own index,
+// and nothing maps to 0–15: those are the terminal theme's colours, whose shades
+// loghorn doesn't know.
+func TestNearestIndex(t *testing.T) {
+	for hex, want := range map[string]int{
+		"#000000": 16, "#ffffff": 231, "#303030": 236, "#5faf5f": 71, "#00afff": 39,
+		"#080808": 232, "#eeeeee": 255, "#ff5f5f": 203, "#8a8a8a": 245,
+	} {
+		if got := nearestIndex(mustHex(t, hex)); got != want {
+			t.Errorf("nearestIndex(%s) = %d, want %d", hex, got, want)
+		}
+	}
+	for i := 16; i <= 255; i++ {
+		c := termenv.ConvertToRGB(termenv.ANSI256Color(i))
+		if got := nearestIndex(c); got != i {
+			t.Errorf("nearestIndex(%s) = %d, want its own index %d", c.Hex(), got, i)
+		}
+	}
+	// A coarse sweep of the RGB cube, the 16 ANSI colours' usual shades among it.
+	for r := 0; r <= 255; r += 17 {
+		for g := 0; g <= 255; g += 17 {
+			for b := 0; b <= 255; b += 17 {
+				c := colorful.Color{R: float64(r) / 255, G: float64(g) / 255, B: float64(b) / 255}
+				if got := nearestIndex(c); got < 16 || got > 255 {
+					t.Fatalf("nearestIndex(%s) = %d, want 16–255", c.Hex(), got)
+				}
+			}
 		}
 	}
 }

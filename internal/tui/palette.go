@@ -2,16 +2,20 @@ package tui
 
 import (
 	"math"
+	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/muesli/termenv"
 )
 
 // Colours are chosen for the terminal loghorn is drawn on, not fixed. Each style
 // has a role — a base colour tuned for a dark terminal and a contrast target — and
 // SetBackground resolves every role against the terminal's actual background: keep
 // the base if it already reads, otherwise walk its lightness away from the
-// background, keeping its hue, until it does. See
+// background, keeping its hue, until it does. Readability is judged on the colour
+// the terminal will really show, which on a 256-colour terminal is the nearest
+// palette index, not the colour asked for. See
 // docs/superpowers/specs/2026-09-15-adaptive-palette-design.md.
 
 const (
@@ -64,41 +68,147 @@ func towardText(bg colorful.Color) float64 {
 	return 1
 }
 
-// selectionFor is the selected row's background: bg nudged toward the text
-// direction, so it stays recognisably the terminal's own colour.
-func selectionFor(bg colorful.Color) colorful.Color {
-	h, c, l := bg.Hcl()
-	return colorful.Hcl(h, c, clamp01(l+towardText(bg)*selectionShift)).Clamped()
+// inGamut is the colour at hue h and lightness l with as much of chroma c as sRGB
+// can show. Clipping each RGB channel to range instead, as Clamped does, moves the
+// hue — the accent swung almost 20° on a light green terminal — so chroma gives
+// way and hue and lightness hold. Twenty halvings pin chroma far finer than 8 bits
+// a channel can show.
+func inGamut(h, c, l float64) colorful.Color {
+	if col := colorful.Hcl(h, c, l); col.IsValid() {
+		return col
+	}
+	lo, hi := 0.0, c
+	for range 20 {
+		mid := (lo + hi) / 2
+		if colorful.Hcl(h, mid, l).IsValid() {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	// At chroma lo the colour is in gamut, or is a grey that floating-point error
+	// has put a hair outside it; Clamped only trims that error.
+	return colorful.Hcl(h, lo, l).Clamped()
 }
 
-// pick resolves one role. Text is drawn both on the background and on the
-// selected row — the status bar lives there — so a colour must read against both.
-func pick(base colorful.Color, target float64, bg, sel colorful.Color) colorful.Color {
+// selectionFor is the selected row's background: bg nudged toward the text
+// direction, so it stays recognisably the terminal's own colour.
+func selectionFor(bg colorful.Color) colorful.Color { return nudge(bg, selectionShift) }
+
+// nudge is bg with its CIE LCh lightness moved by shift toward the text direction.
+func nudge(bg colorful.Color, shift float64) colorful.Color {
+	h, c, l := bg.Hcl()
+	return inGamut(h, c, clamp01(l+towardText(bg)*shift))
+}
+
+// A display is what the terminal does with a colour loghorn asks for: the colour
+// that actually reaches the screen, and the name to give lipgloss for it. Colours
+// are judged by what is shown, so contrast holds for what the reader sees.
+type display func(want colorful.Color) (shown colorful.Color, name lipgloss.Color)
+
+// trueColor shows a colour to 8 bits a channel, named in hex.
+func trueColor(want colorful.Color) (colorful.Color, lipgloss.Color) {
+	hex := want.Hex()
+	return hexColor(hex), lipgloss.Color(hex)
+}
+
+// ansi256 shows the nearest xterm index and names it by number. Given hex,
+// lipgloss would quantise through termenv, whose grey-ramp candidate is always
+// index 232, a near-black: the selected row vanished on a black terminal and
+// important lines turned black on a white one. A number is used as it stands.
+func ansi256(want colorful.Color) (colorful.Color, lipgloss.Color) {
+	i := nearestIndex(want)
+	return xterm[i-16], lipgloss.Color(strconv.Itoa(i))
+}
+
+// displayFor is the display for a lipgloss colour profile. Only 256-colour
+// terminals get their own: a 16-colour terminal maps any colour to one of its
+// theme's, whose shades loghorn can't know, and Ascii shows none, so for both hex
+// is as good a name as any.
+func displayFor(p termenv.Profile) display {
+	if p == termenv.ANSI256 {
+		return ansi256
+	}
+	return trueColor
+}
+
+// xterm is what indices 16–255 show on xterm and the terminals that copy it: a
+// 6×6×6 colour cube, then a 24-step grey ramp. Index i is xterm[i-16].
+var xterm = func() (table [240]colorful.Color) {
+	levels := [6]float64{0, 95, 135, 175, 215, 255}
+	for i := range 216 {
+		table[i] = colorful.Color{R: levels[i/36] / 255, G: levels[i/6%6] / 255, B: levels[i%6] / 255}
+	}
+	for i := range 24 {
+		v := float64(8+10*i) / 255
+		table[216+i] = colorful.Color{R: v, G: v, B: v}
+	}
+	return table
+}()
+
+// nearestIndex is the xterm index from 16 to 255 that looks most like c, by
+// distance in CIE Lab. Indices 0–15 are never chosen: they are the terminal
+// theme's own colours, whose shades loghorn doesn't know.
+func nearestIndex(c colorful.Color) int {
+	best, bestDist := 0, math.Inf(1)
+	for i, x := range xterm {
+		if d := c.DistanceLab(x); d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	return 16 + best
+}
+
+// showSelection is the selection as d shows it. A 256-colour index is coarse, and
+// the nudge can land on the very index nearest the background — it does on
+// #cee8be — which would hide the selected row; so the nudge goes on, a lightness
+// step at a time, until the terminal would draw something else. Fifty steps reach
+// black or white, which no background on the other side of lightLuminance is
+// nearest to.
+func showSelection(bg colorful.Color, d display) (colorful.Color, lipgloss.Color) {
+	_, bgName := d(bg)
+	for i := 0; ; i++ {
+		shown, name := d(nudge(bg, selectionShift+lightnessStep*float64(i)))
+		if name != bgName || i == 50 {
+			return shown, name
+		}
+	}
+}
+
+// pick resolves one role for display d, returning the colour shown and its name.
+// Text is drawn both on the background and on the selected row — the status bar
+// lives there — so a colour must read against both; sel is the selection as d
+// shows it.
+func pick(base colorful.Color, target float64, bg, sel colorful.Color, d display) (colorful.Color, lipgloss.Color) {
 	worst := func(c colorful.Color) float64 { return math.Min(contrast(c, bg), contrast(c, sel)) }
-	if worst(base) >= target {
-		return base
+	if shown, name := d(base); worst(shown) >= target {
+		return shown, name
 	}
 	h, c, l := base.Hcl()
 	dir := towardText(bg)
 	for i := 1; i <= 50; i++ {
-		cand := colorful.Hcl(h, c, clamp01(l+dir*lightnessStep*float64(i))).Clamped()
-		if worst(cand) >= target {
-			return cand
+		if shown, name := d(inGamut(h, c, clamp01(l+dir*lightnessStep*float64(i)))); worst(shown) >= target {
+			return shown, name
 		}
 	}
 	// No shade of this hue reads: a mid-grey background leaves no room in either
 	// direction. Fall back to whichever of black and white does better.
-	if worst(black) >= worst(white) {
-		return black
+	blackShown, blackName := d(black)
+	whiteShown, whiteName := d(white)
+	if worst(blackShown) >= worst(whiteShown) {
+		return blackShown, blackName
 	}
-	return white
+	return whiteShown, whiteName
 }
 
 func clamp01(x float64) float64 { return math.Max(0, math.Min(1, x)) }
 
 // The styles every view draws with. They are assigned only by SetBackground;
 // package init resolves them for a black terminal, so code that never calls it —
-// tests, and anything drawn before main does — sees today's colours.
+// tests, and anything drawn before main does — gets the dark palette: text in the
+// colours loghorn has always used, except strings, which are a fixed green rather
+// than the theme's ANSI green; a slightly lighter divider; and a subtler selected
+// row, derived from the background.
 var (
 	dimStyle, impStyle, selStyle, statusStyle, moreStyle, tsStyle lipgloss.Style
 	helpHeadStyle, helpKeyStyle, helpNoteStyle                    lipgloss.Style
@@ -133,11 +243,15 @@ func init() { SetBackground(black) }
 
 // SetBackground recomputes every style for a terminal whose background is bg. The
 // styles are plain package variables, so call it before the program starts
-// rendering.
+// rendering. Colours are chosen for lipgloss's colour profile, which comes from
+// the environment, not from asking the terminal. The background itself is never
+// quantised: the terminal draws it exactly, whatever its profile.
 func SetBackground(bg colorful.Color) {
-	sel := selectionFor(bg)
+	d := displayFor(lipgloss.ColorProfile())
+	sel, selName := showSelection(bg, d)
 	fg := func(base colorful.Color, target float64) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(pick(base, target, bg, sel).Hex()))
+		_, name := pick(base, target, bg, sel, d)
+		return lipgloss.NewStyle().Foreground(name)
 	}
 	accent := fg(accentBase, textContrast)
 	attention := fg(attentionBase, textContrast)
@@ -152,5 +266,5 @@ func SetBackground(bg colorful.Color) {
 	boolStyle = fg(booleanBase, textContrast)
 	sqlKeywordStyle = fg(sqlKeywordBase, textContrast)
 	sqlTypeStyle = fg(sqlTypeBase, textContrast)
-	selStyle = lipgloss.NewStyle().Background(lipgloss.Color(sel.Hex()))
+	selStyle = lipgloss.NewStyle().Background(selName)
 }
