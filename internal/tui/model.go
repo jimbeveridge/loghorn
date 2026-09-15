@@ -144,6 +144,12 @@ type Model struct {
 	// keystroke must not erase the fact that nothing is being kept.
 	logFileOff string
 
+	// historical is set for -historical, which is replaying stored files rather
+	// than watching a live stream. LIVE/HELD would be misleading — there is
+	// nothing "live" to hold against — so the bar says HISTORICAL throughout;
+	// see statusBar.
+	historical bool
+
 	width, height int
 }
 
@@ -160,6 +166,12 @@ func (m *Model) SetLogFileOff(detail string) { m.logFileOff = detail }
 
 // LogFileOff reports into the update loop that the log file stopped mid-run.
 func LogFileOff(detail string) tea.Msg { return logFileOffMsg{Detail: detail} }
+
+// SetHistorical marks the model as replaying stored files under -historical
+// rather than watching live input. The shade still works exactly as before —
+// space, G, j from the newest row and clicking the bar all grab the handle —
+// only the bar's mode word changes.
+func (m *Model) SetHistorical() { m.historical = true }
 
 // doubleClickWindow is how close two clicks on the same row must be to count as
 // a double-click.
@@ -1075,6 +1087,11 @@ func (m Model) statusBar() string {
 	if live {
 		mode = "LIVE"
 	}
+	if m.historical {
+		// There is no live stream to hold against while replaying stored files,
+		// so LIVE/HELD would be misleading either way the shade sits.
+		mode = "HISTORICAL"
+	}
 	base := statusStyle.Render(fmt.Sprintf(
 		"loghorn %s · %s · %s lines · %d shown", m.spinner(), mode, comma(m.ingested), len(m.rows)))
 
@@ -1120,7 +1137,7 @@ func (m Model) statusBar() string {
 		more += moreStyle.Render(" · mouse:off")
 	}
 
-	// Nothing reaching the log file is worth saying, and only then.
+	// Say so only when records aren't reaching the log file.
 	if m.logFileOff != "" {
 		more += moreStyle.Render(" · no log file (" + m.logFileOff + ")")
 	}
@@ -1134,7 +1151,7 @@ func (m Model) statusBar() string {
 	// discoverable. State is rendered before hints, so a narrow window loses
 	// hints rather than state.
 	tail := statusStyle.Render(fmt.Sprintf(
-		" · j/k · spc %s · enter open · ? help · q quit", toggleWord(live)))
+		" · j/k · spc %s · enter open · ? help · q quit", toggleWord(live, m.historical)))
 
 	// The handle carries the cursor and the selected-row highlight while it
 	// holds it, so "where is the cursor" has one consistent answer.
@@ -1178,9 +1195,16 @@ func comma(n int) string {
 	return b.String()
 }
 
-func toggleWord(live bool) string {
+// toggleWord names what pressing space does next. On the handle it always
+// reads "hold". Off it, historical mode says "latest" instead of "live" —
+// there is no live stream to resume, only the newest stored record to jump
+// back to.
+func toggleWord(live, historical bool) string {
 	if live {
 		return "hold"
+	}
+	if historical {
+		return "latest"
 	}
 	return "live"
 }

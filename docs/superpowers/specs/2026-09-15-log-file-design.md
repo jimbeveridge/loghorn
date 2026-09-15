@@ -146,6 +146,11 @@ runs first, unchanged.
   and the open of `loghorn.log` can still skip the day it was just archived to. A file that
   vanished between listing and opening (pruned in that window) is skipped; any other open
   error is fatal.
+- **Status bar.** The TUI's mode word always reads HISTORICAL, never LIVE or HELD — there is
+  no live stream to hold against while replaying stored files. The shade otherwise works
+  exactly as it does live: `space`, `G`, `j`/down from the newest row and clicking the bar
+  all still grab the handle and jump to the newest stored record; only the bar's wording
+  changes (`SetHistorical`, `internal/tui/model.go`).
 
 ### Single writer
 

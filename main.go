@@ -261,6 +261,9 @@ func main() {
 	if locked != nil {
 		model.SetLogFileOff(locked.Holder() + " has it")
 	}
+	if *historical {
+		model.SetHistorical()
+	}
 	p := tea.NewProgram(model, opts...)
 
 	// logErr keeps a mid-run log file failure to print once the TUI has gone; the

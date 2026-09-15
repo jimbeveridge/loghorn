@@ -159,7 +159,9 @@ Shipped after v0 in response to real use:
   works alongside a recording loghorn, and never creates `.loghorn/` itself) and stopping
   at the end rather than following `loghorn.log` live; its scrollback defaults to 100,000
   instead of 5,000 unless `--scrollback` is given explicitly, and its per-line ingest-time
-  column shows replay time, not original arrival time. See
+  column shows replay time, not original arrival time. The status bar always reads
+  HISTORICAL rather than LIVE/HELD, since there is no live stream to hold against; space
+  still jumps to the newest stored record. See
   [the spec](superpowers/specs/2026-09-15-log-file-design.md).
 - **Colours that read on any background**: every colour was a fixed 256-colour index picked for
   a dark terminal, and on a light one they washed out — help keys measured 1.4:1 on a `#cee8be`
