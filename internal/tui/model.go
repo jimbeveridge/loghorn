@@ -23,6 +23,9 @@ type doneMsg struct{}
 // childExitMsg reports that the launched producer exited on its own.
 type childExitMsg struct{ Code int }
 
+// logFileOffMsg reports that records stopped reaching the log file mid-run.
+type logFileOffMsg struct{ Detail string }
+
 // Child is the producer loghorn launched and owns. It is nil when loghorn is reading a
 // pipe, where there is nothing to forward keys to or shut down.
 type Child interface {
@@ -145,6 +148,11 @@ type Model struct {
 	childExited bool
 	childCode   int
 
+	// logFileOff says why records are not reaching the log file, or is empty
+	// while they are. Like mouse:off it is state, not a one-shot notice: the next
+	// keystroke must not erase the fact that nothing is being kept.
+	logFileOff string
+
 	width, height int
 }
 
@@ -154,6 +162,13 @@ func (m *Model) SetChild(c Child) { m.child = c }
 
 // ChildExited reports the producer's exit into the update loop.
 func ChildExited(code int) tea.Msg { return childExitMsg{Code: code} }
+
+// SetLogFileOff marks the log file as off from the start, as when another
+// loghorn holds it. detail is shown in parentheses on the bar.
+func (m *Model) SetLogFileOff(detail string) { m.logFileOff = detail }
+
+// LogFileOff reports into the update loop that the log file stopped mid-run.
+func LogFileOff(detail string) tea.Msg { return logFileOffMsg{Detail: detail} }
 
 // doubleClickWindow is how close two clicks on the same row must be to count as
 // a double-click.
@@ -302,6 +317,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Stay open: a crash is exactly when the scrollback is worth reading.
 		m.childExited, m.childCode = true, msg.Code
 		m.forwarding = false // nothing left to forward to
+		return m, nil
+
+	case logFileOffMsg:
+		m.logFileOff = msg.Detail
 		return m, nil
 
 	case tea.KeyMsg:
@@ -1116,6 +1135,11 @@ func (m Model) statusBar() string {
 	// 'm' to select text.
 	if !m.mouse {
 		more += moreStyle.Render(" · mouse:off")
+	}
+
+	// Nothing reaching the log file is worth saying, and only then.
+	if m.logFileOff != "" {
+		more += moreStyle.Render(" · no log file (" + m.logFileOff + ")")
 	}
 
 	if m.notice != "" {
