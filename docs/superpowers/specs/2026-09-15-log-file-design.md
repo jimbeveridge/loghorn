@@ -93,8 +93,9 @@ file isn't the one being written to, but it does copy the whole day into today's
 is just as unwanted.
 
 The fix is not to open the log file at all when a run is a replay: no command was given
-after `--` (so `flag.Args()` is empty) *and* stdin is a regular file (`os.Stat` on it, then
-`Mode().IsRegular()`; a `Stat` error counts as not regular, so an unidentifiable stdin is
+after `--` (so `flag.Args()` is empty) *and* stdin is a regular file (`os.Stdin.Stat()` —
+stdin has no path, so this is an fstat on the open descriptor, not `os.Stat` on a name —
+then `Mode().IsRegular()`; a `Stat` error counts as not regular, so an unidentifiable stdin is
 still recorded rather than silently dropped). A file already on disk is already recorded —
 writing it again adds nothing — while a pipe or a launched command's output only exists once,
 so those are still recorded. No log file being opened means no lock is taken, nothing is
@@ -102,6 +103,37 @@ written, the TUI's bar carries no marker, and neither mode prints anything: not 
 replay is the unsurprising case, not a failure. This applies in both the TUI and `--filter`;
 `--exclusive` is moot when no log file is opened at all. The source-tree refusal above still
 runs first, unchanged.
+
+### Reading stored logs (`-historical`)
+
+`loghorn -historical` reads the files this package writes back into the normal TUI (or
+`--filter`) instead of watching live input:
+
+- **Source.** Every `loghorn-YYYY-MM-DD.log` archive in the resolved executable's directory,
+  oldest first, then `loghorn.log` if it exists — `logfile.HistoricalFiles(dir)`. Names that
+  don't parse as one of those two shapes (`loghorn.lock`, a stray `other.log`, a hand-renamed
+  `loghorn-junk.log`) are ignored.
+- **Stops at the end.** No following of `loghorn.log` after the stored lines are read — each
+  file is a plain `*os.File`, so `ingest.Records` reaching EOF ends that file and the loop
+  moves to the next, with nothing left running once the last one is read.
+- **Read-only.** `-historical` never calls `openLogFile`: no lock is taken, nothing is written,
+  the TUI carries no marker, and no message is printed. It therefore works while another
+  loghorn is recording, and `--exclusive` has no effect on it.
+- **Scrollback.** If `--scrollback` was not passed explicitly (`flag.Visit`), the ring's
+  capacity defaults to 100,000 instead of the live default of 5,000: three or four stored days
+  of typical output usually exceed 5,000 lines, and 100,000 keeps memory bounded without
+  silently evicting the oldest of them.
+- **Guards**, after the source-tree refusal: a command after `--` (`-historical` is a reader,
+  not a launcher) or stdin that isn't a character device (piped or redirected — it would
+  compete with the stored files) each exit 2; no stored files at all exits 1.
+- **Per-file format detection.** `ingest.Records` detects YAML vs line format by peeking the
+  start of its stream, so it runs once per file, in order, rather than over one concatenated
+  stream — different days may come from different producers. `--filter` mode likewise calls
+  `headless.Run` once per file, with a nil sink.
+- **Opening.** Every listed file is opened before any is read, so a concurrent midnight rename
+  by a recording loghorn can't make a file disappear mid-listing — an open descriptor survives
+  the rename. A file that vanished between listing and opening (pruned in that window) is
+  skipped; any other open error is fatal.
 
 ### Single writer
 
@@ -241,6 +273,9 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
   not actually old.
 - Input replayed from a file (`loghorn < file`) is not recorded, per the rule above; only
   pipes and launched commands are.
+- `-historical`'s per-line ingest-time column shows when the line was replayed, not when it
+  originally arrived — the stored files don't record arrival time. The record's own timestamp,
+  where the producer included one, is still shown in the detail pane.
 
 ## Out of scope
 

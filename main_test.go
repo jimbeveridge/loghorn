@@ -75,3 +75,24 @@ func TestRecordSinkCallsOnFailOnce(t *testing.T) {
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.t }
+
+func TestScrollbackFor(t *testing.T) {
+	cases := []struct {
+		name       string
+		historical bool
+		explicit   bool
+		n          int
+		want       int
+	}{
+		{"historical default gets the larger cap", true, false, 5000, 100000},
+		{"historical with --scrollback keeps the explicit value", true, true, 777, 777},
+		{"live default is unaffected", false, false, 5000, 5000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := scrollbackFor(c.historical, c.explicit, c.n); got != c.want {
+				t.Fatalf("scrollbackFor(%v, %v, %d) = %d, want %d", c.historical, c.explicit, c.n, got, c.want)
+			}
+		})
+	}
+}

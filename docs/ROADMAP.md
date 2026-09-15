@@ -145,8 +145,13 @@ Shipped after v0 in response to real use:
   loghorn refuses to run inside its own source tree, where `go run .` would write the logs into a
   temporary directory. Input replayed from a file (`loghorn < file`) is not recorded — it's
   already on disk, and recording it too was found to loop forever when the file was `loghorn.log`
-  itself. Both files are created owner-only (`0600`): the log can hold tokens and auth headers
-  from a dev server. The files are gitignored, so a worktree's logs go with it. See
+  itself. `loghorn.log` and `loghorn.lock` are both created owner-only (`0600`): the log can hold
+  tokens and auth headers from a dev server. The files are gitignored, so a worktree's logs go
+  with it. **`loghorn -historical`** reads the stored archives back — oldest day first, then
+  today — into the normal TUI or `--filter`, read-only (no lock, no writes, works alongside a
+  recording loghorn) and stopping at the end rather than following `loghorn.log` live; its
+  scrollback defaults to 100,000 instead of 5,000 unless `--scrollback` is given explicitly, and
+  its per-line ingest-time column shows replay time, not original arrival time. See
   [the spec](superpowers/specs/2026-09-15-log-file-design.md).
 
 Toolchain note: the effective Go floor is **Go 1.24**, not the 1.22 the original plan targeted —

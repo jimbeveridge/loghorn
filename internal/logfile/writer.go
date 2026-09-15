@@ -218,13 +218,25 @@ func (w *Writer) prune(today time.Time) error {
 	return nil
 }
 
-// archiveDay parses the date out of an archive's name.
-func (w *Writer) archiveDay(name string) (time.Time, bool) {
+// archiveName reports whether name has the archive shape
+// loghorn-<date>.log, returning the date portion for the caller to parse.
+// Shared by prune, via (*Writer).archiveDay below, and by HistoricalFiles in
+// history.go, so the two never drift apart on what counts as an archive.
+func archiveName(name string) (string, bool) {
 	s, ok := strings.CutPrefix(name, archivePrefix)
 	if !ok {
-		return time.Time{}, false
+		return "", false
 	}
-	if s, ok = strings.CutSuffix(s, archiveSuffix); !ok {
+	return strings.CutSuffix(s, archiveSuffix)
+}
+
+// archiveDay parses the date out of an archive's name, in the writer's own
+// location. It must be: prune compares the result against a midnight
+// computed from the same clock and location, and parsing the two ends in
+// different zones would shift the cutoff by the zone offset.
+func (w *Writer) archiveDay(name string) (time.Time, bool) {
+	s, ok := archiveName(name)
+	if !ok {
 		return time.Time{}, false
 	}
 	day, err := time.ParseInLocation(dateLayout, s, w.loc)
