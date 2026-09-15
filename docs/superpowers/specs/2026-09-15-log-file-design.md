@@ -31,8 +31,12 @@ lives about 96 hours. Using calendar dates rather than hour arithmetic keeps DST
 
 ### Files
 
-All three live in the directory of the resolved executable
-(`filepath.EvalSymlinks(os.Executable())`):
+All three live in a `.loghorn/` folder in the directory loghorn was started from
+(`filepath.Join(cwd, ".loghorn")`, `cwd` from `os.Getwd()` at startup), not next to
+the executable. One binary serves every project on the machine, so keying the
+directory off the executable meant every loghorn anywhere shared a single lock —
+reported by the user running loghorn from two projects at once. Keying it off the
+start directory instead gives each project its own logs and its own lock.
 
 | File | Holds |
 |---|---|
@@ -40,12 +44,13 @@ All three live in the directory of the resolved executable
 | `loghorn-YYYY-MM-DD.log` | a finished day, named by its local date |
 | `loghorn.lock` | the single-writer lock; holds the owner's PID, never deleted |
 
-In practice that directory is the root of a loghorn checkout or worktree, next to the
-already-ignored `/loghorn` binary. `.gitignore` gains root-anchored `/loghorn.log`,
-`/loghorn-*.log` and `/loghorn.lock` (anchored, so a new `.log` under `testdata/` is not
-hidden). `git worktree remove` does not count ignored files as untracked, so it doesn't
-refuse, and a worktree's logs are deleted silently along with it — verified in a
-scratch repo.
+`logfile.Open` creates `.loghorn/` itself (`os.MkdirAll(dir, 0o700)`, owner-only like
+the files it holds) before taking the lock, and writes `.loghorn/.gitignore` containing
+exactly `*\n` — the same trick `.pytest_cache` uses to ignore itself — the first time it
+sees the directory (`O_EXCL`, so an existing `.gitignore`, whether loghorn's own from an
+earlier run or a user's edit, is left untouched rather than overwritten). That's enough
+for a project's own `git status` to stay clean without editing the project's own
+`.gitignore` to mention `.loghorn/`.
 
 All three are created `0600` (owner read/write only, via `OpenFile`'s mode argument, not a
 separate `chmod`). The log can hold days of dev-server output — tokens, auth headers — that
@@ -73,11 +78,13 @@ loghorn: refusing to run inside the loghorn source tree (/Users/jim/code/loghorn
 run it from your project's directory
 ```
 
-The current directory is never meant to be loghorn's own repo, and this catches the
-case that would otherwise go wrong quietly: `go run .` builds the binary into a
-temporary directory that Go deletes on exit, taking the logs with it, and `go run .`
-only works from inside the repo. The `module` line is read with a plain line scan;
-no `golang.org/x/mod` dependency.
+loghorn is meant to be run from the project it watches, and loghorn's own source tree
+is never that project — the check catches the mistake of running it from its own repo
+by accident. (Its older rationale — that `go run .` builds into a temporary directory
+Go deletes on exit, taking the logs with it — no longer applies now that logs live in
+the start directory rather than next to the executable; the check is kept anyway,
+unchanged, because the source tree still isn't a sensible place to run loghorn from.)
+The `module` line is read with a plain line scan; no `golang.org/x/mod` dependency.
 
 Checking `go.mod` rather than `git config --get remote.origin.url` needs no `git` on
 `PATH`, no `origin` remote, and no matching of SSH vs HTTPS URL forms, and it still
@@ -109,16 +116,19 @@ runs first, unchanged.
 `loghorn -historical` reads the files this package writes back into the normal TUI (or
 `--filter`) instead of watching live input:
 
-- **Source.** Every `loghorn-YYYY-MM-DD.log` archive in the resolved executable's directory,
-  oldest first, then `loghorn.log` if it exists — `logfile.HistoricalFiles(dir)`. Names that
-  don't parse as one of those two shapes (`loghorn.lock`, a stray `other.log`, a hand-renamed
-  `loghorn-junk.log`) are ignored.
+- **Source.** Every `loghorn-YYYY-MM-DD.log` archive in `.loghorn/` in the current
+  directory, oldest first, then `loghorn.log` if it exists — `logfile.HistoricalFiles(dir)`.
+  Names that don't parse as one of those two shapes (`loghorn.lock`, `.gitignore`, a stray
+  `other.log`, a hand-renamed `loghorn-junk.log`) are ignored.
 - **Stops at the end.** No following of `loghorn.log` after the stored lines are read — each
   file is a plain `*os.File`, so `ingest.Records` reaching EOF ends that file and the loop
   moves to the next, with nothing left running once the last one is read.
 - **Read-only.** `-historical` never calls `openLogFile`: no lock is taken, nothing is written,
   the TUI carries no marker, and no message is printed. It therefore works while another
-  loghorn is recording, and `--exclusive` has no effect on it.
+  loghorn is recording, and `--exclusive` has no effect on it. In particular it never creates
+  `.loghorn/` — `HistoricalFiles` on a missing directory simply reports no stored files
+  (`loghorn: no stored logs in <dir>`), rather than `Open`'s `os.MkdirAll`, which only the
+  always-on log file's own `openLogFile` path reaches.
 - **Scrollback.** If `--scrollback` was not passed explicitly (`flag.Visit`), the ring's
   capacity defaults to 100,000 instead of the live default of 5,000: three or four stored days
   of typical output usually exceed 5,000 lines, and 100,000 keeps memory bounded without
@@ -167,14 +177,17 @@ The lock is taken before a child is launched, so `--exclusive` never starts
 ### Startup
 
 1. **Source-tree check** (above).
-2. **Lock.** If held: with `--exclusive` exit 1; otherwise skip the remaining steps and
+2. **Create `.loghorn/`** (`os.MkdirAll(dir, 0o700)`) and write its self-ignoring
+   `.gitignore` if one isn't already there. Either failing exits 1, unwritable-start-dir
+   included.
+3. **Lock.** If held: with `--exclusive` exit 1; otherwise skip the remaining steps and
    run without a log file. If taken, write the PID.
-3. **Archive a leftover.** If `loghorn.log` exists and its mtime falls before local
+4. **Archive a leftover.** If `loghorn.log` exists and its mtime falls before local
    midnight today, move it to `loghorn-<mtime's local date>.log` — by rename, or by
    appending its contents and removing it if that archive already exists.
-4. **Prune.** Delete every `loghorn-YYYY-MM-DD.log` dated before today − 3 days. Names
+5. **Prune.** Delete every `loghorn-YYYY-MM-DD.log` dated before today − 3 days. Names
    that don't parse as a date are left alone.
-5. **Open** `loghorn.log` with `O_APPEND|O_CREATE`. Failure here exits 1: the file is
+6. **Open** `loghorn.log` with `O_APPEND|O_CREATE`. Failure here exits 1: the file is
    always on, so an unwritable directory is a setup error, not something to run
    through.
 
@@ -229,9 +242,9 @@ messages drop the PID rather than fail.
   clock and location make every date decision testable.
 - **Source-tree check:** a small function taking the starting directory, so tests can
   point it at a temp tree.
-- **`main.go`:** adds `--exclusive`; runs the check, resolves the executable's directory,
-  and opens the writer — all before `--filter` dispatch and before `runner.Start` — then
-  calls `Write` first thing in the existing ingest callback.
+- **`main.go`:** adds `--exclusive`; runs the check, resolves `.loghorn/` under the current
+  directory, and opens the writer — all before `--filter` dispatch and before
+  `runner.Start` — then calls `Write` first thing in the existing ingest callback.
 - **`headless.Run`:** gains a record-sink parameter it calls for every record, important
   or not. Tee-ing the raw input bytes instead would let a midnight rollover split a
   multi-line YAML record across two files.
@@ -252,6 +265,8 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 - A DST-change day rotates at local midnight.
 - `Open` writes its PID to `loghorn.lock`; a second `Open` on the same directory reports
   the lock as held with that PID, and the lock is free again after the first `Close`.
+- `Open` on a not-yet-existing directory creates it `0700` and writes a self-ignoring
+  `.gitignore` (`*\n`); an existing `.gitignore` is left untouched.
 - After a write error, later writes are no-ops.
 - Source-tree check: fires in a nested directory under loghorn's `go.mod`; passes under
   another module's `go.mod` and with no `go.mod` at all.
@@ -259,15 +274,12 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 
 ## Known limits, accepted
 
-- A `go install`ed binary writes to `~/go/bin`, which is not a worktree and is never
-  cleaned up by git. Only running from inside the repo is guarded.
 - Manual testing from the repo root (`./loghorn < docs/backend.log`) is now refused; run
   it from another directory.
 - Retention is 72–96 hours, not exactly 72.
-- A loghorn installed in a directory it can't write — `/usr/local/bin`, a Homebrew
-  keg — now exits at startup instead of running. The log file is always on and there is
-  no `--log-dir` to redirect it, so an unwritable install location is a hard stop, not
-  something to run through.
+- loghorn needs a writable start directory; an unwritable one exits at startup. The log
+  file is always on and there is no `--log-dir` to redirect it, so this is a hard stop,
+  not something to run through.
 - If the host's clock is wrong in a way that puts it days ahead — a VM started before its
   first NTP sync, say — startup pruning trusts that clock and can delete archives that are
   not actually old.
@@ -276,6 +288,9 @@ All in `t.TempDir()`, with a fake clock and `America/Los_Angeles`:
 - `-historical`'s per-line ingest-time column shows when the line was replayed, not when it
   originally arrived — the stored files don't record arrival time. The record's own timestamp,
   where the producer included one, is still shown in the detail pane.
+- `-historical` reads `.loghorn/` in the current directory — the directory it's run from,
+  same as the always-on log file, not wherever an earlier recording loghorn happened to run
+  from.
 
 ## Out of scope
 

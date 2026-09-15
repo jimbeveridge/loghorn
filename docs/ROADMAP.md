@@ -134,24 +134,32 @@ Shipped after v0 in response to real use:
   a few seconds, so a silent one is easy to miss entirely. The sound is the only part loghorn
   controls; making them persist means setting Script Editor (or terminal-notifier, which beeep
   prefers when it is on `PATH`) to "Alerts" in System Settings › Notifications.
-- **Always-on log file**: every record is appended, as its original line(s), to `loghorn.log` next
-  to the executable, so the stream outlives both the ring and loghorn itself. Expiry works on
-  whole local days — a log can only be appended to — keeping today plus three archived
-  `loghorn-YYYY-MM-DD.log` files, so a line lives 72–96 hours. A `loghorn.log` left from an earlier
-  day is archived by its mtime at startup; while running, rollover happens at local midnight
-  before the record that crosses it is written. A `flock` on `loghorn.lock` (which holds the
-  owner's PID for the message) keeps a second loghorn from corrupting the first at midnight: it
-  runs without a file and the bar says `no log file (pid N has it)`, or exits with `--exclusive`.
-  loghorn refuses to run inside its own source tree, where `go run .` would write the logs into a
-  temporary directory. Input replayed from a file (`loghorn < file`) is not recorded — it's
-  already on disk, and recording it too was found to loop forever when the file was `loghorn.log`
-  itself. `loghorn.log` and `loghorn.lock` are both created owner-only (`0600`): the log can hold
-  tokens and auth headers from a dev server. The files are gitignored, so a worktree's logs go
-  with it. **`loghorn -historical`** reads the stored archives back — oldest day first, then
-  today — into the normal TUI or `--filter`, read-only (no lock, no writes, works alongside a
-  recording loghorn) and stopping at the end rather than following `loghorn.log` live; its
-  scrollback defaults to 100,000 instead of 5,000 unless `--scrollback` is given explicitly, and
-  its per-line ingest-time column shows replay time, not original arrival time. See
+- **Always-on log file**: every record is appended, as its original line(s), to
+  `.loghorn/loghorn.log` in the directory loghorn was started from — not next to the
+  executable, since one binary serving every project meant every loghorn on the machine
+  shared a single lock; keying the directory off the start directory instead gives each
+  project its own logs and its own lock — so the stream outlives both the ring and loghorn
+  itself. Expiry works on whole local days — a log can only be appended to — keeping today
+  plus three archived `loghorn-YYYY-MM-DD.log` files, so a line lives 72–96 hours. A
+  `loghorn.log` left from an earlier day is archived by its mtime at startup; while running,
+  rollover happens at local midnight before the record that crosses it is written. A `flock`
+  on `loghorn.lock` (which holds the owner's PID for the message) keeps a second loghorn in
+  the same project from corrupting the first at midnight: it runs without a file and the bar
+  says `no log file (pid N has it)`, or exits with `--exclusive`. loghorn refuses to run
+  inside its own source tree, since loghorn is meant to be run from the project it watches
+  and loghorn's own source tree is never that project. Input replayed from a file
+  (`loghorn < file`) is not recorded — it's already on disk, and recording it too was found
+  to loop forever when the file was `loghorn.log` itself. `.loghorn/` is created owner-only
+  (`0700`), and `loghorn.log` and `loghorn.lock` within it likewise (`0600`): the log can
+  hold tokens and auth headers from a dev server. `.loghorn/` also gets its own
+  self-ignoring `.gitignore` (`*\n`, written once, never overwritten), the `.pytest_cache`
+  trick, so a project's `git status` stays clean without editing the project's own
+  `.gitignore`. **`loghorn -historical`** reads the stored archives back — oldest day
+  first, then today — into the normal TUI or `--filter`, read-only (no lock, no writes,
+  works alongside a recording loghorn, and never creates `.loghorn/` itself) and stopping
+  at the end rather than following `loghorn.log` live; its scrollback defaults to 100,000
+  instead of 5,000 unless `--scrollback` is given explicitly, and its per-line ingest-time
+  column shows replay time, not original arrival time. See
   [the spec](superpowers/specs/2026-09-15-log-file-design.md).
 - **Colours that read on any background**: every colour was a fixed 256-colour index picked for
   a dark terminal, and on a light one they washed out — help keys measured 1.4:1 on a `#cee8be`

@@ -11,9 +11,9 @@
 // producers, but an interactive one fights loghorn for /dev/tty — both processes
 // read it, so keystrokes get split between them at random.
 //
-// Every record is also appended to loghorn.log next to the executable; see
-// package logfile. Run with -historical to read those stored files back
-// instead of live input.
+// Every record is also appended to .loghorn/loghorn.log in the directory loghorn
+// is started from; see package logfile. Run with -historical to read those
+// stored files back instead of live input.
 //
 // Run with --filter for a headless stdin->stdout filter.
 package main
@@ -54,12 +54,13 @@ captures its stdout and stderr together, keeps the keyboard to itself, and stops
 its whole process group on quit. In a pipeline the producer still holds the
 terminal, so it competes with loghorn for keystrokes and outlives it.
 
-Every record is also appended to loghorn.log next to the loghorn executable. Each
-finished day is kept as loghorn-YYYY-MM-DD.log, and days before the last three
-are deleted. Input read from a file (loghorn < file) is not recorded — it's
-already on disk. loghorn will not run from inside its own source tree. Read the
-stored files back with -historical: oldest day first, then today, read-only,
-stopping at the end rather than following the live file.
+Every record is also appended to .loghorn/loghorn.log in the directory loghorn
+starts in, so each project gets its own logs and its own lock. Each finished day
+is kept as loghorn-YYYY-MM-DD.log, and days before the last three are deleted.
+Input read from a file (loghorn < file) is not recorded — it's already on disk.
+loghorn will not run from inside its own source tree. Read the stored files
+back with -historical: oldest day first, then today, read-only, stopping at the
+end rather than following the live file.
 
 Examples:
   loghorn -- npm run dev
@@ -115,8 +116,8 @@ func main() {
 	}
 
 	// Refuse to run from loghorn's own source tree before anything is launched or
-	// written. `go run .` only works from there, and it builds into a temporary
-	// directory Go deletes on exit, which would take the log files with it.
+	// written. loghorn is meant to be run from the project it watches, and
+	// loghorn's own source tree is never that project.
 	// A cwd that can't be resolved (e.g. it was deleted out from under the
 	// process) can't be the source tree either, so skip the check rather than
 	// fail the whole run over it.
@@ -334,17 +335,18 @@ func main() {
 	}
 }
 
-// openLogFile opens the always-on log file in the executable's directory. A lock
-// held by another loghorn is returned rather than fatal, so loghorn can run on
-// without a file — unless exclusive, when it exits. Any other failure exits: the
-// file is always on, so an unwritable directory is a setup error.
+// openLogFile opens the always-on log file in .loghorn under the directory
+// loghorn was started from. A lock held by another loghorn is returned rather
+// than fatal, so loghorn can run on without a file — unless exclusive, when it
+// exits. Any other failure exits: the file is always on, so an unwritable
+// directory is a setup error.
 func openLogFile(exclusive bool) (*logfile.Writer, *logfile.LockedError) {
-	dir, err := executableDir()
+	dir, err := logDir()
 	if err != nil {
-		// "log file:" distinguishes this from -historical's own use of
-		// executableDir, where the same failure is about reading stored logs,
-		// not about the always-on log.
-		fmt.Fprintln(os.Stderr, "loghorn: log file: locating the executable:", err)
+		// "log file:" distinguishes this from every other startup error, so the
+		// user knows the side log — not the thing they're launching — is the
+		// problem.
+		fmt.Fprintln(os.Stderr, "loghorn: log file:", err)
 		os.Exit(1)
 	}
 	w, err := logfile.Open(dir, time.Now, time.Local)
@@ -405,17 +407,17 @@ func terminalBackground() colorful.Color {
 	return termenv.ConvertToRGB(termenv.NewOutput(os.Stdout).BackgroundColor())
 }
 
-// executableDir is the directory of the running binary with symlinks resolved,
-// so a symlinked loghorn still writes next to the real file.
-func executableDir() (string, error) {
-	exe, err := os.Executable()
+// logDir is .loghorn under the directory loghorn was started from: where the
+// log file, its archives and its lock live, and where -historical reads from.
+// Deriving it from the current directory rather than the executable's gives
+// every project its own lock — one binary serving many projects otherwise
+// meant every loghorn on the machine shared a single lock.
+func logDir() (string, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return "", err
-	}
-	return filepath.Dir(exe), nil
+	return filepath.Join(cwd, ".loghorn"), nil
 }
 
 // recordSink hands each record to the log file. The writer returns only its
@@ -458,12 +460,12 @@ func scrollbackFor(historical, explicit bool, n int) int {
 // listing and opening was pruned in that window and is simply skipped; any
 // other failure here is fatal, like every other -historical setup problem.
 func openHistoricalFiles() []*os.File {
-	dir, err := executableDir()
+	dir, err := logDir()
 	if err != nil {
 		// Unprefixed by "log file:", unlike openLogFile's failure above:
 		// -historical isn't about the always-on log, it's about reading what's
 		// already on disk.
-		fmt.Fprintln(os.Stderr, "loghorn: locating the executable:", err)
+		fmt.Fprintln(os.Stderr, "loghorn:", err)
 		os.Exit(1)
 	}
 	paths, err := logfile.HistoricalFiles(dir)

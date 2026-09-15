@@ -45,11 +45,19 @@ type Writer struct {
 	buf  []byte    // reused so a record and its newline go out in one write
 }
 
-// Open locks dir, archives a loghorn.log left from an earlier day, prunes old
-// archives, and opens today's file. Another loghorn holding dir is reported as
-// *LockedError. clock and loc decide every date, so tests need not wait for
-// midnight.
+// Open creates dir if needed, locks it, archives a loghorn.log left from an
+// earlier day, prunes old archives, and opens today's file. Another loghorn
+// holding dir is reported as *LockedError. clock and loc decide every date, so
+// tests need not wait for midnight.
 func Open(dir string, clock func() time.Time, loc *time.Location) (*Writer, error) {
+	// 0o700, owner-only, like every file this package creates: dir holds a log
+	// that can carry a dev server's tokens and auth headers.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := writeGitignore(dir); err != nil {
+		return nil, err
+	}
 	lock, err := acquire(dir)
 	if err != nil {
 		return nil, err
@@ -60,6 +68,24 @@ func Open(dir string, clock func() time.Time, loc *time.Location) (*Writer, erro
 		return nil, err
 	}
 	return w, nil
+}
+
+// writeGitignore creates dir/.gitignore the first time Open sees dir, so
+// .loghorn ignores itself (the .pytest_cache trick) and a project's own
+// .gitignore need not be edited to keep `git status` clean. O_EXCL makes this
+// a no-op — not an overwrite — when the file is already there, whether loghorn
+// wrote it on an earlier run or a user edited it.
+func writeGitignore(dir string) error {
+	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString("*\n")
+	return err
 }
 
 // start readies today's file. A leftover's day is its mtime: while loghorn runs

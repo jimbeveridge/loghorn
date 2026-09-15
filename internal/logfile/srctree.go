@@ -14,10 +14,10 @@ const loghornModule = "github.com/jimbeveridge/loghorn"
 // file alone decides, so a project nested in loghorn's tree with its own module
 // is not loghorn. dir should be absolute.
 //
-// loghorn refuses to run from its own tree: `go run .` only works from there, and
-// it builds the binary into a temporary directory Go deletes on exit, which would
-// take the log files next to it along too. Checking go.mod rather than the git
-// remote needs no git, no origin remote, and still fires in a fork.
+// loghorn refuses to run from its own tree: loghorn is meant to be run from the
+// project it watches, and loghorn's own source tree is never that project.
+// Checking go.mod rather than the git remote needs no git, no origin remote,
+// and still fires in a fork.
 func SourceTree(dir string) (root string, ok bool) {
 	for {
 		if data, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {

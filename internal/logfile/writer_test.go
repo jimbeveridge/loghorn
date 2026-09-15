@@ -169,6 +169,40 @@ func TestOpenPrunesBeforeTodayMinusThree(t *testing.T) {
 	}
 }
 
+// Open must create the .loghorn directory itself — the caller no longer
+// creates it — owner-only, with a self-ignoring .gitignore so a project's own
+// .gitignore need not mention it.
+func TestOpenCreatesDirAndSelfIgnoringGitignore(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".loghorn")
+	openAt(t, dir, at(2026, 9, 15, 10, 0))
+
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o700 {
+		t.Fatalf("dir mode = %o, want 0700", got)
+	}
+	if got, want := readFile(t, filepath.Join(dir, ".gitignore")), "*\n"; got != want {
+		t.Fatalf(".gitignore = %q, want %q", got, want)
+	}
+	if !exists(filepath.Join(dir, "loghorn.log")) {
+		t.Fatalf("loghorn.log was not created")
+	}
+}
+
+// A user may have already committed their own .gitignore into .loghorn (or
+// edited the one loghorn wrote); Open must never overwrite it.
+func TestOpenKeepsExistingGitignore(t *testing.T) {
+	dir := t.TempDir()
+	putFile(t, filepath.Join(dir, ".gitignore"), "custom\n", time.Time{})
+	openAt(t, dir, at(2026, 9, 15, 10, 0))
+
+	if got, want := readFile(t, filepath.Join(dir, ".gitignore")), "custom\n"; got != want {
+		t.Fatalf(".gitignore = %q, want %q", got, want)
+	}
+}
+
 func TestOpenReportsHeldLock(t *testing.T) {
 	dir := t.TempDir()
 	openAt(t, dir, at(2026, 9, 15, 10, 0))

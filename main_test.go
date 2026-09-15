@@ -34,6 +34,22 @@ func TestParseTheme(t *testing.T) {
 	}
 }
 
+// logDir is where the log file lives and -historical reads from: .loghorn
+// under the directory loghorn was started in, one per project.
+func TestLogDir(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := logDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(cwd, ".loghorn"); got != want {
+		t.Fatalf("logDir() = %q, want %q", got, want)
+	}
+}
+
 func TestIsRegularFileTrueForARegularFile(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "regular")
 	if err != nil {
