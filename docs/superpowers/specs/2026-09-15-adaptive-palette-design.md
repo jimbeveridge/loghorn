@@ -98,7 +98,13 @@ colour at that lightness.
 2. **Selection background.** The background's CIE LCh lightness shifted by 0.08 towards
    the text direction (darker on a light background). On `#000000` this is `#181818`, a
    little subtler than today's `#303030`; on `#cee8be` it is `#b8d1a8`, a slightly deeper
-   green (both measured with a prototype of this algorithm).
+   green (both measured with a prototype of this algorithm). Hue and chroma for this shift,
+   and everywhere below that a colour's own hue is read back out, come straight from Lab —
+   `atan2(b, a)`, `hypot(a, b)` — rather than through go-colorful's own Hcl accessor, which
+   sets hue to 0 whenever `a` is within 1e-4 of zero or `a` and `b` are nearly equal,
+   regardless of chroma. That axis is not just greys: a saturated navy background such as
+   `#003357` sits on it, and reading its hue the naive way once sent the selected row to
+   maroon instead of a darker navy.
 3. **Each foreground role.** Start at the base colour. If its contrast against *both* the
    background and the selection background reaches the target, keep it — so on a typical
    dark terminal the colours barely change. Otherwise step LCh lightness by 0.02 in the

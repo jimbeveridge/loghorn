@@ -164,6 +164,27 @@ func TestPickMidGreyFallsBack(t *testing.T) {
 	}
 }
 
+// hcl must return the true hue on go-colorful's own zero-hue axes: LabToHcl
+// (behind Color.Hcl) sets hue to 0 whenever |a| <= 1e-4 or a and b are nearly
+// equal, regardless of chroma. Both cases below are built with real chroma
+// (0.2-0.3) squarely on one of those axes, so go-colorful's own accessor would
+// report hue 0 for each; hcl must not.
+func TestHclAxisHue(t *testing.T) {
+	for _, tc := range []struct{ h, c, l float64 }{
+		{270, 0.3, 0.3},  // a ~= 0: the |a| <= 1e-4 axis
+		{225, 0.2, 0.25}, // a ~= b: the a≈b axis
+	} {
+		built := colorful.Hcl(tc.h, tc.c, tc.l)
+		if quirkH, _, _ := built.Hcl(); quirkH != 0 {
+			t.Fatalf("test setup: colorful.Hcl(%v,%v,%v).Hcl() = %v, want the known 0 quirk to reproduce here", tc.h, tc.c, tc.l, quirkH)
+		}
+		gotH, _, _ := hcl(built)
+		if diff := hueDiff(tc.h, gotH); diff > 1 {
+			t.Errorf("hcl(colorful.Hcl(%v, %v, %v)) hue = %.2f, want within 1° of %v", tc.h, tc.c, tc.l, gotH, tc.h)
+		}
+	}
+}
+
 // A colour that is exactly an xterm cube or grey-ramp entry maps to its own index,
 // and nothing maps to 0–15: those are the terminal theme's colours, whose shades
 // loghorn doesn't know.

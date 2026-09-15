@@ -34,10 +34,9 @@ const (
 	// lightnessStep is the stride of the search for a readable shade.
 	lightnessStep = 0.02
 	// lightnessSteps is how many strides of lightnessStep it takes to cross the
-	// whole lightness range, 0 to 1 — kept as its own constant, rather than
-	// computed from lightnessStep at each use, so every search loop shares one
-	// bound instead of repeating the literal.
-	lightnessSteps = 50 // 1 / lightnessStep
+	// whole lightness range, 0 to 1. Derived from lightnessStep, as an untyped
+	// constant, so it can't drift out of sync if that stride ever changes.
+	lightnessSteps = 1 / lightnessStep
 	// selectionVisible is the least contrast the selected row's background keeps
 	// with the terminal's. Truecolor selections measure about 1.17–1.35:1; 1.1
 	// leaves room for a 256-colour index landing a little nearer the background,
@@ -77,6 +76,20 @@ func towardText(bg colorful.Color) float64 {
 	return 1
 }
 
+// hcl is c's hue, chroma and lightness, read straight from CIE Lab rather than
+// through go-colorful's own Color.Hcl (LabToHcl): that helper sets hue to 0
+// whenever |a| <= 1e-4 or a and b are nearly equal — the two axes of the a-b
+// plane — regardless of chroma, so a clearly chromatic colour sitting on either
+// axis (a saturated navy, say) gets reported as hue 0, red. Everywhere this
+// package needs a colour's own hue back out, rather than building one from a
+// known hue, it must go through here instead.
+func hcl(c colorful.Color) (h, chroma, l float64) {
+	l, a, b := c.Lab()
+	h = math.Mod(math.Atan2(b, a)*180/math.Pi+360, 360)
+	chroma = math.Hypot(a, b)
+	return h, chroma, l
+}
+
 // inGamut is the colour at hue h and lightness l with as much of chroma c as sRGB
 // can show. Clipping each RGB channel to range instead, as Clamped does, moves the
 // hue — the accent swung almost 20° on a light green terminal — so chroma gives
@@ -106,7 +119,7 @@ func selectionFor(bg colorful.Color) colorful.Color { return nudge(bg, selection
 
 // nudge is bg with its CIE LCh lightness moved by shift toward the text direction.
 func nudge(bg colorful.Color, shift float64) colorful.Color {
-	h, c, l := bg.Hcl()
+	h, c, l := hcl(bg)
 	return inGamut(h, c, clamp01(l+towardText(bg)*shift))
 }
 
@@ -214,12 +227,8 @@ func pick(base colorful.Color, target float64, bg, sel colorful.Color, d display
 	if shown, name := d(base); worst(shown) >= target {
 		return shown, name
 	}
-	// Hcl's hue is meaningless here when it's read off a near-grey: go-colorful's
-	// LabToHcl sets it to 0 whenever |a| <= 1e-4 or a and b are nearly equal,
-	// rather than leaving it undefined. inGamut only uses that hue to hold a
-	// chromatic colour's lightness slide steady, so a meaningless hue on a grey —
-	// which has no chroma to hold steady either — changes nothing.
-	h, c, l := base.Hcl()
+	// base's hue comes from hcl, not base.Hcl(): see hcl's comment for why.
+	h, c, l := hcl(base)
 	dir := towardText(bg)
 	prevL := l
 	for i := 1; i <= lightnessSteps; i++ {

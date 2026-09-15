@@ -112,10 +112,12 @@ func TestSetBackgroundMakesEveryStyleReadable(t *testing.T) {
 // the hex values they approximate — read on the background and on the selected
 // row, and the selected row stays visible against the background the terminal
 // really draws. #d7ffaf is itself an index, 193; the first nudge already lands
-// on a different one, 150.
+// on a different one, 150. #000044 is a known limit (see the spec): its
+// saturated dark blue leaves the cube few nearby shades, so the selection lands
+// much heavier than usual, but text still reaches its target.
 func TestSetBackgroundReadableOnANSI256(t *testing.T) {
 	useProfile(t, termenv.ANSI256)
-	for _, bgHex := range []string{"#000000", "#1e1e1e", "#ffffff", "#cee8be", "#fdf6e3", "#d7ffaf"} {
+	for _, bgHex := range []string{"#000000", "#1e1e1e", "#ffffff", "#cee8be", "#fdf6e3", "#d7ffaf", "#000044"} {
 		bg := mustHex(t, bgHex)
 		SetBackground(bg)
 		selIdx := indexOf(t, "selStyle background", selStyle.GetBackground())
@@ -179,6 +181,24 @@ func TestSetBackgroundKeepsHue(t *testing.T) {
 	}
 }
 
+// The selected row's background must keep the terminal's own hue, not swing to
+// an unrelated one. #003357 and #002f39 are real, clearly chromatic navies that
+// happen to sit on go-colorful's own Hcl's zero-hue axes (nearly a=0, or a≈b);
+// reading their hue through that accessor, as nudge once did, forced it to 0
+// (red) and produced a maroon selection instead of a darker navy.
+func TestSelectionKeepsBackgroundHue(t *testing.T) {
+	for _, bgHex := range []string{"#003357", "#002f39"} {
+		bg := mustHex(t, bgHex)
+		bgH, bgC, _ := hcl(bg)
+		sel := selectionFor(bg)
+		selH, _, _ := hcl(sel)
+		if diff := hueDiff(bgH, selH); diff > 3 {
+			t.Errorf("selectionFor(%s) hue = %.1f, background hue = %.1f (chroma %.3f); %.1f° apart, want within 3°",
+				bgHex, selH, bgH, bgC, diff)
+		}
+	}
+}
+
 // Resolving colours must not change which styles are bold.
 func TestSetBackgroundKeepsBold(t *testing.T) {
 	t.Cleanup(func() { SetBackground(black) })
@@ -236,7 +256,7 @@ func TestDefaultPaletteIsTodaysColours(t *testing.T) {
 // The selection is nudged no further than it must be. On #cee8be index 151 already
 // shows at 1.21:1, level with the truecolor selection; pushing on to 108 darkened
 // the row enough to cost four roles their colour. #000055 exercises the other
-// branch, where the first nudge isn't enough: its cube has few dark blues, so
+// branch, where the first nudge isn't enough: the cube has few dark blues, so
 // showSelection keeps stepping until index 54, 1.62:1, seven steps past the first.
 func TestSelectionStopsWhenVisible(t *testing.T) {
 	for bgHex, want := range map[string]lipgloss.Color{"#cee8be": "151", "#000000": "234", "#ffffff": "254", "#000055": "54"} {
