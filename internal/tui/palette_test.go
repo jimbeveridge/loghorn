@@ -51,17 +51,20 @@ func textStyles() map[string]lipgloss.Style {
 	}
 }
 
-// styleTargets is each style's contrast target, keyed the same as textStyles.
-// Every style defaults to WCAG's normal-text 4.5:1; the attention role
-// (helpKeyStyle, numStyle, moreStyle) targets accentContrast, 3:1, the
-// bold/large-text threshold, because those styles are short bold tokens on a
-// light background.
-func styleTargets() map[string]float64 {
+// styleTargets is each style's contrast target on background bg, keyed the
+// same as textStyles. Every style targets WCAG's normal-text 4.5:1, except
+// that on a light background the attention role (helpKeyStyle, numStyle,
+// moreStyle) drops to accentContrast, 3:1 — WCAG's large-text threshold,
+// applied to those short tokens (now bold) as a deliberate trade. On a dark
+// background attention keeps the normal-text target like every other role.
+func styleTargets(bg colorful.Color) map[string]float64 {
 	targets := make(map[string]float64, len(textStyles()))
 	for name := range textStyles() {
 		targets[name] = textContrast
 	}
-	targets["helpKey"], targets["num"], targets["more"] = accentContrast, accentContrast, accentContrast
+	if isLight(bg) {
+		targets["helpKey"], targets["num"], targets["more"] = accentContrast, accentContrast, accentContrast
+	}
 	return targets
 }
 
@@ -111,7 +114,7 @@ func TestSetBackgroundMakesEveryStyleReadable(t *testing.T) {
 		if got, want := selStyle.GetBackground(), lipgloss.Color(sel.Hex()); got != want {
 			t.Errorf("on %s selStyle background = %v, want %v", bgHex, got, want)
 		}
-		targets := styleTargets()
+		targets := styleTargets(bg)
 		for name, s := range textStyles() {
 			if name == "dim" && isLight(bg) {
 				// On a light background dimStyle carries no foreground at all — the
@@ -154,7 +157,7 @@ func TestSetBackgroundReadableOnANSI256(t *testing.T) {
 				bgHex, selIdx, sel.Hex(), c, selectionVisible)
 		}
 
-		targets := styleTargets()
+		targets := styleTargets(bg)
 		for name, s := range textStyles() {
 			if name == "dim" && isLight(bg) {
 				if got := s.GetForeground(); got != (lipgloss.NoColor{}) {
@@ -232,8 +235,10 @@ func TestSelectionKeepsBackgroundHue(t *testing.T) {
 
 // Resolving colours must not change which styles are bold, except that on a
 // light background helpKeyStyle and numStyle join the attention role's
-// moreStyle in being bold — WCAG's 3:1 attention target is the bold/large-text
-// threshold, so those two must actually be bold to claim it (ruling 2).
+// moreStyle in being bold. WCAG's 3:1 is the large-text threshold (18pt, or
+// 14pt bold); attention's tokens are short, so this is applied to bold short
+// tokens as a deliberate trade rather than a strict reading of WCAG, and
+// helpKeyStyle/numStyle must actually be bold to match that trade.
 func TestSetBackgroundKeepsBold(t *testing.T) {
 	t.Cleanup(func() { SetBackground(black) })
 
@@ -312,12 +317,15 @@ func TestSelectionStopsWhenVisible(t *testing.T) {
 }
 
 // On a light terminal, the attention role (helpKeyStyle, numStyle, moreStyle)
-// targets accentContrast rather than textContrast: those are short bold tokens,
-// and WCAG's 4.5:1 forced them to #714b00, a near-black brown that erased the
-// differentiation the colour was for. At 3:1 they land lighter, still an amber,
-// while keeping the base's hue. dimStyle instead loses its foreground entirely
-// on a light background, so the list's context rows render in the terminal's
-// own (typically black) text rather than the dim role's grey.
+// targets accentContrast rather than textContrast: WCAG's 4.5:1 forced them to
+// #714b00, a near-black brown that erased the differentiation the colour was
+// for. accentContrast, 3:1, is WCAG's large-text threshold (18pt, or 14pt
+// bold); attention's tokens are short, so applying it here — always paired
+// with bold — is a deliberate trade, not a strict reading of WCAG. At 3:1 they
+// land lighter, still an amber, while keeping the base's hue. dimStyle instead
+// loses its foreground entirely on a light background, so the list's context
+// rows render in the terminal's own (typically black) text rather than the dim
+// role's grey.
 func TestAttentionTargetsThreeToOne(t *testing.T) {
 	useProfile(t, termenv.TrueColor)
 	bg := mustHex(t, "#cee8be")

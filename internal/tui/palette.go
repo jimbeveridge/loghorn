@@ -31,8 +31,8 @@ const (
 	// WCAG: SetBackground applies it, always paired with bold, only on light
 	// backgrounds, where holding attention to 4.5:1 forced a near-black brown
 	// with almost no differentiation from the surrounding text — the user chose
-	// a bold amber at 3:1 over that. Dark backgrounds keep the normal-text
-	// 4.5:1 guarantee, unbolded, exactly as before this role existed.
+	// a bold amber at 3:1 over that. Dark backgrounds are unaffected by this
+	// exception and keep the normal-text 4.5:1 guarantee, unbolded.
 	accentContrast = 3.0
 	// lightLuminance is where black and white text contrast equally with a
 	// background, (L+0.05)/0.05 = 1.05/(L+0.05). Above it, text should be darker.
@@ -318,11 +318,11 @@ func SetBackground(bg colorful.Color) {
 	accent := fg(accentBase, textContrast)
 	dim := fg(dimBase, textContrast)
 
-	// attention targets textContrast, the same 4.5:1 as every other role, on
-	// every background — including dark ones far from black, such as Nord's
-	// #3b4252 — so it stays exactly as it always was there. accentContrast
-	// (3:1, always paired with bold — see its comment) applies only when
-	// isLight(bg): that's the one case the user actually asked to change.
+	// attention targets textContrast, WCAG's normal-text 4.5:1, except on a
+	// light background, where it drops to accentContrast, 3:1, always paired
+	// with bold (see accentContrast's comment) — the one case the user
+	// actually asked to change. Dark backgrounds, including ones far from
+	// black such as Nord's #3b4252, are unaffected.
 	attention := fg(attentionBase, textContrast)
 	if isLight(bg) {
 		attention = fg(attentionBase, accentContrast).Bold(true)

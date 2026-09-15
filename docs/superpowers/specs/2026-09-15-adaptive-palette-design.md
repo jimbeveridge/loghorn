@@ -124,23 +124,18 @@ colour at that lightness.
    because holding them to 4.5:1 forced `#714b00`, a near-black brown, on the
    user's `#cee8be` terminal, leaving almost no differentiation between the
    accent and the surrounding text. At 3:1, bold, it is `#986600`, a visibly
-   lighter amber (`#875f00`, ANSI256 index 94, on a 256-colour terminal).
-   Critically, the 3:1 target is gated on `isLight(bg)`, not on whether the base
-   colour happens to already clear 3:1: on a dark background — including ones far
-   from black, such as Nord's `#3b4252` — attention still targets textContrast,
-   4.5:1, exactly as every other role, so it resolves exactly as it always did
-   there (`#ffbe5b` on `#3b4252`, not the base `#ffaf00`) and `helpKeyStyle`/
-   `numStyle` stay non-bold. An earlier version of this change conflated "targets
-   3:1" with "isLight", applying 3:1 (and leaving text non-bold) on dark
-   backgrounds too, which silently dropped attention below 4.5:1 wherever the
-   base colour needed lightening to reach it but already cleared 3:1 — Nord's
-   `#3b4252` among them. Separately, on a light background `dimStyle` — the log
-   list's non-failure rows — is left with no foreground at all,
-   `lipgloss.NewStyle()`, so those rows render in the terminal's own (typically
-   black) text rather than the dim role's grey: the user found the dim grey list
-   lines washed out next to a true black and asked for "a strong black" there.
-   `helpNoteStyle`, `nullStyle` and `tsStyle` keep the dim role's colour on every
-   background; only the list's context rows change, and only on a light one.
+   lighter amber (`#875f00`, ANSI256 index 94, on a 256-colour terminal). The 3:1
+   target is gated on `isLight(bg)`, not on whether the base colour happens to
+   already clear 3:1: on a dark background — including ones far from black, such
+   as Nord's `#3b4252` — attention still targets textContrast, 4.5:1, exactly like
+   every other role, so it resolves there to `#ffbe5b`, not the base `#ffaf00`,
+   and `helpKeyStyle`/`numStyle` stay non-bold. Separately, on a light background
+   `dimStyle` — the log list's non-failure rows — is left with no foreground at
+   all, `lipgloss.NewStyle()`, so those rows render in the terminal's own
+   (typically black) text rather than the dim role's grey: the user found the dim
+   grey list lines washed out next to a true black and asked for "a strong black"
+   there. `helpNoteStyle`, `nullStyle` and `tsStyle` keep the dim role's colour on
+   every background; only the list's context rows change, and only on a light one.
 5. **Judge what the terminal shows.** On a truecolor terminal that is the colour rounded to
    8 bits a channel. On a 256-colour terminal it is the nearest xterm index from 16 to 255
    by CIE Lab distance — 0–15 are the theme's own colours, which loghorn doesn't know — so
@@ -205,14 +200,11 @@ the search has no profile branches of its own.
   selection, are lighter than the 4.5:1 result (`#714b00`), keep the base's hue
   within 1°, and are bold; on `#cee8be` under ANSI256 they resolve to index 94.
   On `#000000`/`#1e1e1e` they equal today's `#ffaf00` and `helpKeyStyle`/`numStyle`
-  are not bold. Critically, this also holds on dark backgrounds far from black —
-  `#3b4252` (Nord), `#44475a` (Dracula), `#6f6f6f` (light-looking but dark by the
-  0.179 luminance threshold) — each pinned to the exact colour 62c4d1e resolved
-  there (`#ffbe5b`, `#ffcd88`, `#000000`), not recomputed, so the test can't drift
-  with the code it guards. A prior fix-round regressed exactly this case: it gated
-  the 3:1 target on the base colour already clearing 3:1 rather than on
-  `isLight(bg)`, which silently left non-bold attention text under 4.5:1 on several
-  dark backgrounds (`TestAttentionUnchangedOnDark`).
+  are not bold. This also holds on dark backgrounds far from black — `#3b4252`
+  (Nord), `#44475a` (Dracula), `#6f6f6f` (light-looking but dark by the 0.179
+  luminance threshold) — each pinned to the colour 4.5:1 resolves to there
+  (`#ffbe5b`, `#ffcd88`, `#000000`), not recomputed, so the test can't drift with
+  the code it guards (`TestAttentionUnchangedOnDark`).
 - **Hue holds:** in truecolor, on `#cee8be` and `#ffffff`, every chromatic role (accent,
   attention, important, string, boolean, sqlKeyword, sqlType) resolves within 1° of its base
   hue. Near-grey results are skipped: their hue is undefined.
