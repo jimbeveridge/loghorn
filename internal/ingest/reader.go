@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+
+	"github.com/jimbeveridge/loghorn/internal/config"
 )
 
 // Lines reads r to EOF, invoking emit once per line without the trailing '\n'.
@@ -30,21 +32,64 @@ func lines(br *bufio.Reader, emit func(line []byte)) error {
 	}
 }
 
-// Records reads r to EOF, invoking emit once per log record. Most producers
-// emit one record per line — JSON objects, plain text — and Records is
-// equivalent to Lines. gcloud's `--format=yaml` output is different: each
-// record is a multi-line document, with a line of "---" marking where one
-// ends and the next begins. Records detects that shape by peeking whether
-// the stream's first line starts with "--" and, if so, buffers each document
-// whole (keeping its leading "---", so a record adapter's own format check
-// stays a simple prefix test) instead of splitting on '\n'.
-func Records(r io.Reader, emit func(rec []byte)) error {
+// Records reads r to EOF, invoking emit once per log record.
+//
+// Producers frame records three ways, and format decides which applies.
+// config.FormatAuto detects it from the stream's first line:
+//
+//	"["  a JSON array — gcloud beta logging tail --json, where each record is
+//	     a pretty-printed object spanning many lines
+//	"--" YAML documents — gcloud logging read --format=yaml, one record per
+//	     document with "---" between them
+//	else one record per line: plain text, or one JSON object per line
+//
+// An explicit format skips detection, which is what a tail attached
+// mid-stream needs: it missed the opening "[".
+//
+// The slice passed to emit is only valid during the call; emit must copy it
+// to retain it.
+func Records(r io.Reader, format config.Format, emit func(rec []byte)) error {
 	br := bufio.NewReader(r)
-	first, _ := br.Peek(2)
-	if len(first) == 2 && first[0] == '-' && first[1] == '-' {
-		return yamlDocuments(br, emit)
+	if format == config.FormatAuto {
+		format = detect(br)
 	}
-	return lines(br, emit)
+	switch format {
+	case config.FormatJSON:
+		return jsonArray(br, emit)
+	case config.FormatYAML:
+		return yamlDocuments(br, emit)
+	default:
+		return lines(br, emit)
+	}
+}
+
+// detectPeek bounds how much of the stream detection examines. Every framing
+// marker is a line of one to three bytes, so a longer first line can't be
+// one, and a peek must stay well inside bufio's buffer anyway.
+const detectPeek = 512
+
+// detect reports the framing the stream's first line indicates, without
+// consuming any of it.
+func detect(br *bufio.Reader) config.Format {
+	head, err := br.Peek(detectPeek)
+	if len(head) == 0 {
+		return config.FormatText
+	}
+	end := bytes.IndexByte(head, '\n')
+	if end < 0 {
+		if !errors.Is(err, io.EOF) {
+			// The first line runs past the peek, so it is no marker.
+			return config.FormatText
+		}
+		end = len(head) // the whole stream is one unterminated line
+	}
+	switch first := bytes.TrimRight(head[:end], " \t\r"); {
+	case bytes.Equal(first, []byte("[")):
+		return config.FormatJSON
+	case bytes.HasPrefix(first, []byte("--")):
+		return config.FormatYAML
+	}
+	return config.FormatText
 }
 
 func yamlDocuments(br *bufio.Reader, emit func(rec []byte)) error {

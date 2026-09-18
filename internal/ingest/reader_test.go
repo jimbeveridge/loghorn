@@ -3,6 +3,8 @@ package ingest
 import (
 	"strings"
 	"testing"
+
+	"github.com/jimbeveridge/loghorn/internal/config"
 )
 
 func collect(t *testing.T, input string) []string {
@@ -43,7 +45,7 @@ func TestLinesVeryLong(t *testing.T) {
 func collectRecords(t *testing.T, input string) []string {
 	t.Helper()
 	var got []string
-	err := Records(strings.NewReader(input), func(rec []byte) {
+	err := Records(strings.NewReader(input), config.FormatAuto, func(rec []byte) {
 		got = append(got, string(rec))
 	})
 	if err != nil {

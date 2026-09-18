@@ -33,6 +33,7 @@ import (
 
 	"github.com/jimbeveridge/loghorn/internal/adapter"
 	"github.com/jimbeveridge/loghorn/internal/alert"
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/engine"
 	"github.com/jimbeveridge/loghorn/internal/entry"
 	"github.com/jimbeveridge/loghorn/internal/headless"
@@ -289,7 +290,7 @@ func main() {
 		// YAML vs line format by peeking its own stream's start.
 		var err error
 		for _, src := range sources {
-			err = ingest.Records(src, func(line []byte) {
+			err = ingest.Records(src, config.FormatAuto, func(line []byte) {
 				sink(line)
 				e := adapter.ParseLine(line)
 				e.Received = time.Now()

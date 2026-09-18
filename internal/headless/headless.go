@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/jimbeveridge/loghorn/internal/adapter"
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/engine"
 	"github.com/jimbeveridge/loghorn/internal/ingest"
 )
@@ -15,7 +16,7 @@ import (
 // keeps the whole stream. The slice passed to sink is only valid during the call.
 func Run(r io.Reader, w io.Writer, sink func(rec []byte)) error {
 	var writeErr error
-	err := ingest.Records(r, func(rec []byte) {
+	err := ingest.Records(r, config.FormatAuto, func(rec []byte) {
 		if sink != nil {
 			sink(rec)
 		}
