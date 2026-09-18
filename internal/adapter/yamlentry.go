@@ -3,6 +3,7 @@ package adapter
 import (
 	"bytes"
 
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/entry"
 	"gopkg.in/yaml.v3"
 )
@@ -11,19 +12,21 @@ import (
 // LogEntry per document. ingest.Records already splits the stream into
 // per-document records on the "---" separator between them, keeping each
 // record's leading separator, so Detect only needs to check for that prefix.
-type YAMLAdapter struct{}
+// In carries the same field-naming and severity settings as LogEntryAdapter;
+// a zero value behaves as "auto".
+type YAMLAdapter struct{ In config.Input }
 
 func (YAMLAdapter) Detect(rec []byte) bool {
 	t := bytes.TrimSpace(rec)
 	return len(t) >= 2 && t[0] == '-' && t[1] == '-'
 }
 
-func (YAMLAdapter) Parse(rec []byte) (entry.Entry, error) {
+func (a YAMLAdapter) Parse(rec []byte) (entry.Entry, error) {
 	var obj map[string]any
 	if err := yaml.Unmarshal(rec, &obj); err != nil {
 		return entry.Entry{}, err
 	}
-	return fromLogEntryObject(rec, normalizeYAML(obj).(map[string]any)), nil
+	return fromLogEntryObject(rec, normalizeYAML(obj).(map[string]any), a.In), nil
 }
 
 // normalizeYAML aligns yaml.v3's decoded types with encoding/json's, so every
