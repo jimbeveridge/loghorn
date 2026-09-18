@@ -64,6 +64,13 @@ back with -historical: oldest day first, then today, read-only, stopping at the
 end rather than following the live file. -historical refuses piped stdin or
 stdin redirected from a file, so from cron or CI pass </dev/null.
 
+Settings come from .config/loghorn/config.toml, found by walking up from the
+directory loghorn starts in; the nearest one wins outright, and if there is
+none, ~/.config/loghorn/config.toml applies. It selects how input is framed
+(format) and how LogEntry fields and severities are read (field-naming,
+severity) — gcloud's snake_case and numeric severities are accepted by
+default. Run with -config to see which file is in effect.
+
 Examples:
   loghorn -- npm run dev
   loghorn --scrollback 20000 -- go test ./...
@@ -97,6 +104,7 @@ func main() {
 	exclusive := flag.Bool("exclusive", false, "exit if another loghorn is already writing the log file, instead of running without one")
 	historical := flag.Bool("historical", false, "show the stored log files (oldest day first, then today) instead of live input")
 	theme := flag.String("theme", "auto", "colours: auto (ask the terminal for its background), light, dark, or the background as #rrggbb")
+	configFlag := flag.Bool("config", false, "print the config file in effect and the settings it resolves to, then exit")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -115,6 +123,26 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "loghorn:", err)
 		os.Exit(2)
+	}
+
+	// The config file is resolved from the working directory, the same anchor
+	// as .loghorn/ and the source-tree refusal, so all three agree on what
+	// "this project" means. A bad file is a usage error like a bad --theme,
+	// reported before anything is launched or written.
+	cwd, _ := os.Getwd()
+	cfg, cfgPath, err := config.Load(cwd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "loghorn:", err)
+		os.Exit(2)
+	}
+	if *configFlag {
+		if cfgPath == "" {
+			fmt.Println("no config file found; using defaults")
+		} else {
+			fmt.Println(cfgPath)
+		}
+		fmt.Print(cfg)
+		return
 	}
 
 	// Refuse to run from loghorn's own source tree before anything is launched or
@@ -178,7 +206,7 @@ func main() {
 			// from different producers. No sink: -historical never writes to the
 			// log file.
 			for _, f := range historicalFiles {
-				if err := headless.Run(f, os.Stdout, nil); err != nil {
+				if err := headless.Run(f, os.Stdout, cfg.Input, nil); err != nil {
 					fmt.Fprintln(os.Stderr, "loghorn:", err)
 					os.Exit(1)
 				}
@@ -191,7 +219,7 @@ func main() {
 		sink := recordSink(logs, func(err error) {
 			fmt.Fprintln(os.Stderr, "loghorn: log file stopped:", err)
 		})
-		if err := headless.Run(os.Stdin, os.Stdout, sink); err != nil {
+		if err := headless.Run(os.Stdin, os.Stdout, cfg.Input, sink); err != nil {
 			fmt.Fprintln(os.Stderr, "loghorn:", err)
 			os.Exit(1)
 		}
@@ -282,6 +310,7 @@ func main() {
 	// The goroutine starts only now because a log file failure reaches the TUI
 	// through p.
 	errCh := make(chan error, 1)
+	parser := adapter.New(cfg.Input)
 	go func() {
 		// One goroutine loops over the sources in order rather than one per
 		// source: live mode's list always has exactly one element, and
@@ -290,9 +319,9 @@ func main() {
 		// YAML vs line format by peeking its own stream's start.
 		var err error
 		for _, src := range sources {
-			err = ingest.Records(src, config.FormatAuto, func(line []byte) {
+			err = ingest.Records(src, cfg.Input.Format, func(line []byte) {
 				sink(line)
-				e := adapter.ParseLine(line)
+				e := parser.ParseLine(line)
 				e.Received = time.Now()
 				e.Important = engine.IsImportant(e)
 				if coalescer != nil && e.Important {
@@ -432,7 +461,9 @@ func logDir() (string, error) {
 	return filepath.Join(cwd, ".loghorn"), nil
 }
 
-// recordSink hands each record to the log file. The writer returns only its
+// recordSink returns the function that copies every record to the log file.
+// A multi-line JSON record is compacted first: the file holds one record per
+// line, and -historical replay depends on that. The writer returns only its
 // first failure and ignores records after it, so onFail runs at most once.
 // Without a log file the sink does nothing.
 func recordSink(w *logfile.Writer, onFail func(error)) func(rec []byte) {
@@ -440,7 +471,7 @@ func recordSink(w *logfile.Writer, onFail func(error)) func(rec []byte) {
 		return func([]byte) {}
 	}
 	return func(rec []byte) {
-		if err := w.Write(rec); err != nil {
+		if err := w.Write(ingest.CompactRecord(rec)); err != nil {
 			onFail(err)
 		}
 	}

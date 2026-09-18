@@ -11,19 +11,23 @@ import (
 )
 
 // Run reads records from r and writes the original bytes of each important one
-// (plus a newline) to w. Output is byte-for-byte faithful to the input. If sink
-// is non-nil it receives every record first, important or not — the log file
-// keeps the whole stream. The slice passed to sink is only valid during the call.
-func Run(r io.Reader, w io.Writer, sink func(rec []byte)) error {
+// (plus a newline) to w. Output is byte-for-byte faithful to the input, so a
+// multi-line record prints across as many lines as it arrived on. If sink is
+// non-nil it receives every record first, important or not — the log file
+// keeps the whole stream. The slice passed to sink is only valid during the
+// call. in decides both how the stream is framed and how a record's fields are
+// read.
+func Run(r io.Reader, w io.Writer, in config.Input, sink func(rec []byte)) error {
+	p := adapter.New(in)
 	var writeErr error
-	err := ingest.Records(r, config.FormatAuto, func(rec []byte) {
+	err := ingest.Records(r, in.Format, func(rec []byte) {
 		if sink != nil {
 			sink(rec)
 		}
 		if writeErr != nil {
 			return
 		}
-		e := adapter.ParseLine(rec)
+		e := p.ParseLine(rec)
 		if !engine.IsImportant(e) {
 			return
 		}

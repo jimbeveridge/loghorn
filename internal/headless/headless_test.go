@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jimbeveridge/loghorn/internal/config"
 )
 
 func TestRunEmitsOnlyImportant(t *testing.T) {
@@ -20,7 +22,7 @@ func TestRunEmitsOnlyImportant(t *testing.T) {
 	}, "\n") + "\n"
 
 	var out bytes.Buffer
-	if err := Run(strings.NewReader(input), &out, nil); err != nil {
+	if err := Run(strings.NewReader(input), &out, config.Default().Input, nil); err != nil {
 		t.Fatalf("Run error: %v", err)
 	}
 	got := out.String()
@@ -61,7 +63,7 @@ func TestRunPassesEveryRecordToSink(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string
 			sink := func(rec []byte) { got = append(got, string(rec)) }
-			if err := Run(strings.NewReader(tc.input), io.Discard, sink); err != nil {
+			if err := Run(strings.NewReader(tc.input), io.Discard, config.Default().Input, sink); err != nil {
 				t.Fatalf("Run error: %v", err)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -96,7 +98,7 @@ func TestRunKeepsFeedingSinkAfterWriteError(t *testing.T) {
 	sink := func(rec []byte) { got = append(got, string(rec)) }
 	wantErr := errors.New("write failed")
 
-	err := Run(strings.NewReader(input), errWriter{wantErr}, sink)
+	err := Run(strings.NewReader(input), errWriter{wantErr}, config.Default().Input, sink)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Run error = %v, want %v", err, wantErr)
 	}

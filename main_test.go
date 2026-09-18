@@ -7,6 +7,7 @@ import (
 	"time"
 	_ "time/tzdata" // America/Los_Angeles without relying on the host's zoneinfo
 
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/logfile"
 )
 
@@ -115,6 +116,28 @@ func TestRecordSinkCallsOnFailOnce(t *testing.T) {
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.t }
+
+// configFor is what main uses to resolve the config: the working directory
+// anchors it, the same as .loghorn/ and the source-tree refusal, so all three
+// agree on what "this project" means.
+func TestConfigForUsesWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, config.RelPath)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("[input]\nformat = \"json\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, path, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if path != p || cfg.Input.Format != config.FormatJSON {
+		t.Fatalf("Load(%q) = %q, %q; want %q, json", dir, path, cfg.Input.Format, p)
+	}
+}
 
 func TestScrollbackFor(t *testing.T) {
 	cases := []struct {
