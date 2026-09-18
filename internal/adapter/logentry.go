@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,7 +192,8 @@ func logEntryTimestamp(obj map[string]any) time.Time {
 }
 
 // logEntryMessage picks the best human-facing message: textPayload, then
-// jsonPayload.message, then top-level message, else the compact JSON.
+// jsonPayload.message, then top-level message, then a summary of httpRequest,
+// else the compact JSON.
 func logEntryMessage(obj map[string]any, naming config.FieldNaming) string {
 	if tp, ok := fieldString(obj, "textPayload", naming); ok && tp != "" {
 		return tp
@@ -203,10 +206,74 @@ func logEntryMessage(obj map[string]any, naming config.FieldNaming) string {
 	if m, ok := obj["message"].(string); ok && m != "" {
 		return m
 	}
+	if hr, ok := fieldMap(obj, "httpRequest", naming); ok {
+		if s := httpRequestSummary(hr, naming); s != "" {
+			return s
+		}
+	}
 	if b, err := json.Marshal(obj); err == nil {
 		return string(b)
 	}
 	return ""
+}
+
+// httpRequestSummary builds a message for an entry whose only content is its
+// httpRequest. A Cloud Run request log — log_name
+// projects/P/logs/run.googleapis.com%2Frequests — carries no payload of any
+// kind, so without this it reached the compact-JSON dump above and the list row
+// read as raw text rather than as a request.
+//
+// Method and status are what make such a row scannable; the URL contributes its
+// path and query, since scheme and host repeat identically down a whole stream
+// and are pure noise at list width. A missing piece is skipped rather than
+// filled with a placeholder, and an httpRequest that yields no piece at all
+// returns "" so the caller falls through to the dump exactly as before.
+func httpRequestSummary(hr map[string]any, naming config.FieldNaming) string {
+	var parts []string
+	if m, ok := fieldString(hr, "requestMethod", naming); ok && m != "" {
+		parts = append(parts, m)
+	}
+	if u, ok := fieldString(hr, "requestUrl", naming); ok && u != "" {
+		parts = append(parts, requestTarget(u))
+	}
+	// status is spelled the same either way. Only an integral value is a status
+	// code; anything else is left out rather than printed as a fraction.
+	if st, ok := hr["status"].(float64); ok && st == math.Trunc(st) {
+		parts = append(parts, strconv.FormatFloat(st, 'f', -1, 64))
+	}
+	// latency is a protobuf Duration, which is a string like "0.002587500s" in
+	// both spellings and which time.ParseDuration reads directly.
+	if l, ok := hr["latency"].(string); ok {
+		if d, err := time.ParseDuration(l); err == nil {
+			parts = append(parts, formatLatency(d))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// requestTarget reduces a request URL to the part that differs between rows.
+// An absolute URL gives up its scheme and host; anything else — a relative URL,
+// or a value that does not parse as a URL at all — is kept whole, since there is
+// no host to drop and guessing at the shape would lose bytes the row needs.
+func requestTarget(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	if u.RawQuery != "" {
+		return u.Path + "?" + u.RawQuery
+	}
+	return u.Path
+}
+
+// formatLatency renders a request latency for a list row: milliseconds to one
+// decimal below a second, seconds to two at or above it. Duration.String prints
+// full precision — 2.5875ms — and those digits are noise at a glance.
+func formatLatency(d time.Duration) string {
+	if d >= time.Second {
+		return strconv.FormatFloat(d.Seconds(), 'f', 2, 64) + "s"
+	}
+	return strconv.FormatFloat(float64(d)/float64(time.Millisecond), 'f', 1, 64) + "ms"
 }
 
 // correlationCandidates are checked in order, at the root then inside the

@@ -234,3 +234,43 @@ func TestHTTPStatusIsArchitectureIndependent(t *testing.T) {
 		}
 	}
 }
+
+// A Cloud Run request log (log_name .../logs/run.googleapis.com%2Frequests)
+// carries an http_request block and no payload at all — no text_payload, no
+// json_payload, no root message. Before this case existed, logEntryMessage
+// fell through to its last resort and dumped the whole entry as compact JSON
+// into the list row, which read as raw text.
+func TestMessageFromHTTPRequest(t *testing.T) {
+	rec := []byte("---\n" +
+		"http_request:\n" +
+		"  latency: 0.002587500s\n" +
+		"  request_method: OPTIONS\n" +
+		"  request_url: https://api.example.com/api/v1/testing/capabilities\n" +
+		"  status: 204\n" +
+		"insert_id: 6aad6aa40008b65fc306077e\n" +
+		"severity: 200\n" +
+		"timestamp: '2026-09-18T16:45:24.566824Z'\n")
+	e := ParseLine(rec)
+	if want := "OPTIONS /api/v1/testing/capabilities 204 2.6ms"; e.Message != want {
+		t.Errorf("Message = %q, want %q", e.Message, want)
+	}
+}
+
+// The same summary is built from the canonical camelCase spelling, and a
+// latency of a second or more reads in seconds.
+func TestMessageFromHTTPRequestCamelCase(t *testing.T) {
+	e := ParseLine([]byte(`{"httpRequest":{"requestMethod":"GET","requestUrl":"https://api.example.com/api/v1/auth/me","status":500,"latency":"1.2344s"}}`))
+	if want := "GET /api/v1/auth/me 500 1.23s"; e.Message != want {
+		t.Errorf("Message = %q, want %q", e.Message, want)
+	}
+}
+
+// A payload message outranks the http_request summary: an entry carrying both
+// (Cloud Run emits stdout logs with an http_request attached) already has a
+// better message than anything synthesised from the request line.
+func TestPayloadMessageOutranksHTTPRequest(t *testing.T) {
+	e := ParseLine([]byte(`{"httpRequest":{"requestMethod":"GET","requestUrl":"/x","status":200},"json_payload":{"message":"from-payload"}}`))
+	if e.Message != "from-payload" {
+		t.Errorf("Message = %q, want from-payload", e.Message)
+	}
+}
