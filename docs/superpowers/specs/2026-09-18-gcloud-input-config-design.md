@@ -53,9 +53,14 @@ identical, so one normalization serves both.
   keys to effective payload, JSONPath field resolution. This change aliases a fixed, known
   set of gcloud spellings only.
 - Multi-line raw text grouping (stack traces), still deferred.
-- Mixed-format stored files. `Records` detects one framing per stream, from its first line;
-  a single stored day containing both YAML and JSON records is an existing limitation and
-  stays one.
+- Mixed-format stored files. `Records` detects one framing per stream, from its first line,
+  so a single stored day containing records from two differently-framed producers is read
+  with whichever framing its first line selected. This is an existing limitation and stays
+  one — but this change makes it materially likelier, and that is worth naming: one tool now
+  reads two gcloud commands, `.loghorn/loghorn.log` is opened `O_APPEND`, and detection sees
+  only the file's first line. Compaction narrows the damage rather than removing it: JSON
+  records reach the file on one line each and so survive any framing, while a preserved
+  multi-line YAML document is still shredded if the file's first line is not its separator.
 
 ## Design
 
@@ -83,9 +88,13 @@ If the walk reaches the root with no match, it makes one final stop at the user-
 otherwise `~/.config/loghorn/config.toml`. That stop is what makes personal defaults apply
 when the working directory is *outside* the home tree — run loghorn from `/opt/service` and a
 pure upward walk would never pass through `~`. When the working directory is already under
-`~`, the walk has already tested that path and the final stop changes nothing. The upward
-walk itself always tests the literal `.config/loghorn/config.toml`, since there it is a path
-relative to a project, not an XDG lookup. Cargo resolves `.cargo/config.toml` the same way:
+`~`, the walk reaches `~/.config/loghorn/config.toml` on its own and the final stop is never
+consulted. That has a consequence worth stating plainly, because it reads backwards from the
+XDG convention: **for a working directory inside the home tree, setting `XDG_CONFIG_HOME`
+does not redirect loghorn's config**, since the walk finds the literal `~/.config` path
+first. The upward walk always tests the literal `.config/loghorn/config.toml` — there it is
+a path relative to a project, not an XDG lookup — and `XDG_CONFIG_HOME` governs only the
+final stop, which is what a working directory outside the home tree relies on. Cargo resolves `.cargo/config.toml` the same way:
 upward from the working directory, then `$CARGO_HOME`.
 
 With no file anywhere, built-in defaults apply. The returned string is the path actually
@@ -135,10 +144,23 @@ that answer non-obvious.
 `Records` gains a third mode beside its existing line and YAML modes. Its signature takes
 the input settings; the mode is chosen once per call, before any record is emitted.
 
-**Detection** (`format = "auto"`) peeks a bounded prefix of the stream — 512 bytes, enough
-for any framing marker — and examines the first line in it, trailing whitespace trimmed. If
-that prefix holds no newline the first line is longer than any marker, so it is line mode
-without further inspection. Peeking, not reading, so no input is consumed:
+**Detection** (`format = "auto"`) examines the stream's first line, trailing whitespace
+trimmed, without consuming any input. It grows the peek to the first newline, bounded at 512
+bytes — enough for any framing marker — taking bytes that have already arrived for free and
+waiting for only one more beyond them.
+
+Asking for the whole 512-byte prefix up front does not work, and this is load-bearing rather
+than a nicety: `bufio.Reader.Peek(n)` fills in a loop until it has `n` bytes, so on a quiet
+live producer it blocks until 512 bytes exist and loghorn emits **no records at all** before
+then. loghorn is a live log tailer, so that is close to a total failure, and every test in
+the suite used a `strings.Reader` — which hits EOF on its first fill — so nothing caught it
+until a reviewer read the code. Waiting for the newline instead costs nothing, because
+whichever framing wins, its next act is to read a whole line and block for that same
+newline. Deciding from a partial first line is the other alternative and is worse: a wrong
+guess misframes every record in the stream, not just the first. If the prefix reaches 512
+bytes with no newline, the first line is longer than any marker and it is line mode.
+
+The framing a first line selects:
 
 - exactly `[` → JSON-array mode
 - begins with `--` → YAML mode (unchanged from today's two-byte peek, so no existing stream
@@ -156,10 +178,12 @@ each file is detected independently; that stays true.
   with a scanner that respects strings and escapes, so a `{` inside `user_agent` or a SQL
   string cannot throw off the count. Scanner state (depth, in-string, escaped) persists
   across lines for the duration of a record.
-- A record's bytes are the original input bytes from the start of its opening line through
-  the byte where depth returns to 0, newlines included and leading indentation retained.
-  `LogEntryAdapter.Detect` already trims space and `json.Unmarshal` tolerates leading
-  whitespace, so the indentation costs nothing.
+- A record's bytes are the original input bytes from its opening `{` through the byte where
+  depth returns to 0, newlines included. The record starts at the brace rather than at the
+  start of the line holding it, because the array punctuation that precedes it — the `[` of
+  the first record, the `,` between later ones — must not end up inside the record.
+  Indentation *within* a record is retained; `LogEntryAdapter.Detect` trims space and
+  `json.Unmarshal` tolerates leading whitespace, so it costs nothing.
 - The record ends at the byte where depth returns to 0. The rest of that line is fed back
   through the same state machine as if it were a fresh line, so a trailing `,` is dropped as
   array framing and a second object sharing the line still starts its own record.
