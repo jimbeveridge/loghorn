@@ -793,15 +793,19 @@ const (
 	detailChrome  = 2 // the divider column plus the margin column
 )
 
-// detailWidth is the width the pane wants: its longest line, so content that
-// fits is shown unwrapped, capped so the list keeps detailReserve columns.
-// Measured on the unwrapped render, and ANSI-aware — the content is coloured.
+// detailWidth is the width the pane wants: enough for its content, so what fits
+// is shown unwrapped, capped so the list keeps detailReserve columns. Measured on
+// the unwrapped render, and ANSI-aware — the content is coloured.
+//
+// Callers measure again whenever the render changes — in particular when a SQL
+// statement comes back formatted, which re-cuts the entry's lines and so moves
+// both the average and which lines stand out from it.
 func (m Model) detailWidth() int {
 	max := m.width - detailReserve
 	if max < 1 {
 		max = 1 // absurdly narrow terminal; degrade rather than go negative
 	}
-	w := maxLineWidth(m.renderDetail())
+	w := contentWidth(m.renderDetail(), m.foldTarget())
 	if w > max {
 		w = max
 	}
@@ -809,6 +813,69 @@ func (m Model) detailWidth() int {
 		w = 1
 	}
 	return w
+}
+
+// An entry is usually a column of short lines with one runaway in it — a message
+// paragraph, a URL, a stack frame. Sizing the pane to that one line pushes every
+// other line half a screen from the divider to read a value nobody is reading.
+// So a line far wider than the average is treated as an outlier: the pane fits
+// the lines that are left and the outlier folds instead. Two outliers are still
+// outliers; by three, wide lines are the shape of the entry and the pane sizes to
+// them after all.
+const (
+	outlierFactor = 1.8 // times the average line width
+	outlierLimit  = 2   // beyond this many wide lines, size to them
+)
+
+// foldTarget is how wide the pane is when it folds an outlier, whatever the
+// shorter lines happen to measure: half the terminal. A paragraph folded to the
+// width of a "pid: 4481" is unreadable, and the list keeps the other half.
+func (m Model) foldTarget() int { return m.width / 2 }
+
+// contentWidth is the width the rendered detail wants: its longest line, or, when
+// at most outlierLimit lines are more than outlierFactor times the average, the
+// longest of the lines that remain — but never less than target, the width an
+// outlier is folded into. Blank lines are left out of the average, which they
+// would otherwise drag down until ordinary lines looked like outliers.
+func contentWidth(s string, target int) int {
+	lines := strings.Split(s, "\n")
+	widths := make([]int, 0, len(lines))
+	total := 0
+	for _, ln := range lines {
+		w := lipgloss.Width(ln)
+		if w == 0 {
+			continue
+		}
+		widths = append(widths, w)
+		total += w
+	}
+	if len(widths) == 0 {
+		return 0
+	}
+	limit := outlierFactor * float64(total) / float64(len(widths))
+	max, rest, long := 0, 0, 0
+	for _, w := range widths {
+		if w > max {
+			max = w
+		}
+		if float64(w) > limit {
+			long++
+			continue
+		}
+		if w > rest {
+			rest = w
+		}
+	}
+	if long == 0 || long > outlierLimit {
+		return max
+	}
+	if rest < target {
+		rest = target
+	}
+	if rest > max {
+		rest = max
+	}
+	return rest
 }
 
 // maxLineWidth is the display width of the widest line, ignoring ANSI styling.
@@ -864,11 +931,20 @@ func (m Model) wrappedDetail() string {
 	return strings.Join(lines, "\n")
 }
 
+// contIndent is how far a continuation line sits past the line it folded from.
+// Flush with its own line, the rest of a long value reads as a sibling key at the
+// same nesting level; two columns in, it reads as the tail of the value above.
+const contIndent = 2
+
 // wrapLine folds one rendered line to w columns, breaking at spaces where it can
-// and mid-word where it must. Continuations keep the line's own indentation, so
-// a long value doesn't spill back to the left edge and break up the YAML's
-// nesting — unless that indent is more than half the pane, where it would leave
-// too little room to read.
+// and mid-word where it must. Continuations keep the line's own indentation plus
+// contIndent, so a long value neither spills back to the left edge nor lines up
+// with the keys around it — unless that indent is more than half the pane, where
+// it would leave too little room to read.
+//
+// Every part is wrapped to the continuation's width, not the first line's, so the
+// first line gives up contIndent columns it could have used. That costs a word
+// and keeps the fold to one width to reason about.
 //
 // cellbuf.Wrap rather than ansi.Wrap: the content is coloured, and cellbuf
 // re-opens the active style on each continuation line. Without that, a folded
@@ -880,13 +956,22 @@ func wrapLine(ln string, w int) string {
 	}
 	body := strings.TrimLeft(ln, " ")
 	pad := len(ln) - len(body)
-	if pad > w/2 {
+	if pad+contIndent > w/2 {
 		body, pad = ln, 0
 	}
-	indent := strings.Repeat(" ", pad)
-	parts := strings.Split(cellbuf.Wrap(body, w-pad, ""), "\n")
+	width := w - pad - contIndent
+	if width < 1 {
+		width = 1 // pane narrower than the indent; fold anyway rather than hide text
+	}
+	first := strings.Repeat(" ", pad)
+	cont := strings.Repeat(" ", pad+contIndent)
+	parts := strings.Split(cellbuf.Wrap(body, width, ""), "\n")
 	for i := range parts {
-		parts[i] = indent + parts[i]
+		if i == 0 {
+			parts[i] = first + parts[i]
+			continue
+		}
+		parts[i] = cont + parts[i]
 	}
 	return strings.Join(parts, "\n")
 }

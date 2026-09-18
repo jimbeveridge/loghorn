@@ -235,3 +235,82 @@ func TestCappedContentIsWrappedToPane(t *testing.T) {
 		t.Fatalf("wrapped content is %d columns, pane is %d", got, m.detail.Width)
 	}
 }
+
+// One line far wider than the rest doesn't stretch the pane: the pane holds at
+// the fold width, and the outlier folds into it.
+func TestOutlierLineDoesNotStretchThePane(t *testing.T) {
+	short := strings.Repeat("s", 50)
+	e := rawEntry(short, short, short, short, short, short, strings.Repeat("L", 400))
+
+	m := openOn(t, 120, 20, e)
+	if got, want := m.detail.Width, 120/2; got != want {
+		t.Fatalf("pane should hold at the fold width (%d columns), got %d", want, got)
+	}
+	if got := maxLineWidth(m.wrappedDetail()); got > m.detail.Width {
+		t.Fatalf("the outlier should have folded: %d columns, pane is %d", got, m.detail.Width)
+	}
+	if squash(m.wrappedDetail()) != squash(m.renderDetail()) {
+		t.Fatalf("folding the outlier changed the text")
+	}
+}
+
+// Two wide lines are still outliers; by three they are the shape of the entry,
+// and the pane sizes to them (up to the cap) rather than folding them all.
+func TestOutlierRuleStopsAtTwoLines(t *testing.T) {
+	short := strings.Repeat("s", 50)
+	long := strings.Repeat("L", 400)
+	six := []string{short, short, short, short, short, short}
+
+	two := openOn(t, 120, 20, rawEntry(append(append([]string{}, six...), long, long)...))
+	if got, want := two.detail.Width, 120/2; got != want {
+		t.Fatalf("two outliers should still fold: pane %d, want %d", got, want)
+	}
+
+	three := openOn(t, 120, 20, rawEntry(append(append([]string{}, six...), long, long, long)...))
+	if got, want := three.detail.Width, 120-detailReserve; got != want {
+		t.Fatalf("three wide lines should size the pane: %d, want %d", got, want)
+	}
+}
+
+// An outlier folds to half the terminal whatever the lines around it measure,
+// so the fold follows the window rather than the shortest key in the entry.
+func TestOutlierFoldsToHalfTheTerminal(t *testing.T) {
+	e := rawEntry("a", "b", "c", "d", strings.Repeat("L", 400))
+
+	for _, w := range []int{80, 120, 200} {
+		if got, want := openOn(t, w, 20, e).detail.Width, w/2; got != want {
+			t.Fatalf("on a %d-column terminal the fold should be %d columns, got %d", w, want, got)
+		}
+	}
+}
+
+// The pane is sized on the formatted statement, not the logged one. Formatting
+// re-cuts a statement into many lines, which moves both the average and which
+// lines stand out from it, so the measurement has to be redone when it lands.
+func TestPaneSizedOnFormattedSQL(t *testing.T) {
+	col := strings.Repeat("c", 58)
+	long := "SELECT " + strings.Repeat(col+", ", 11) + col + " FROM t WHERE id = $1"
+
+	m := NewModel(nil, 100)
+	// Each select item on its own line, the way sqlfmt lays a statement out.
+	m.formatSQL = func(s string) (string, error) {
+		return strings.NewReplacer(", ", ",\n", " FROM ", "\nFROM ", " WHERE ", "\nWHERE ").Replace(s), nil
+	}
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
+	m = feed(m2.(Model), sqlEntry(long))
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	before := m.detail.Width
+	if got := maxLineWidth(m.renderDetail()); got <= before {
+		t.Fatalf("precondition: the logged statement should be one outlier line (%d columns), pane is %d", got, before)
+	}
+
+	m = deliver(t, m, cmd)
+	if got, want := m.detail.Width, maxLineWidth(m.renderDetail()); got != want {
+		t.Fatalf("no formatted line is an outlier, so the pane should fit them all: %d, widest line %d", got, want)
+	}
+	if m.detail.Width == before {
+		t.Fatalf("the pane should have been re-measured on the formatted statement, but stayed %d", before)
+	}
+}

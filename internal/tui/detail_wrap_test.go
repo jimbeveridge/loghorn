@@ -49,9 +49,9 @@ func TestDetailWrapsLongLines(t *testing.T) {
 	}
 }
 
-// A folded value keeps its line's indentation, so it doesn't spill back to the
-// left edge and read as a top-level key.
-func TestWrapKeepsIndentation(t *testing.T) {
+// A folded value keeps its line's indentation and steps two columns past it, so
+// it neither spills back to the left edge nor lines up with the keys around it.
+func TestWrapIndentsContinuationsPastTheirLine(t *testing.T) {
 	m := openBig(t, 60)
 	lines := strings.Split(ansi.Strip(m.wrappedDetail()), "\n")
 
@@ -62,10 +62,12 @@ func TestWrapKeepsIndentation(t *testing.T) {
 		if i+1 >= len(lines) {
 			t.Fatalf("userAgent is the last line; it should have folded")
 		}
-		want := len(ln) - len(strings.TrimLeft(ln, " "))
+		own := len(ln) - len(strings.TrimLeft(ln, " "))
 		next := lines[i+1]
-		if got := len(next) - len(strings.TrimLeft(next, " ")); got != want || want == 0 {
-			t.Fatalf("continuation indented %d, the userAgent line %d:\n%s\n%s", got, want, ln, next)
+		want := own + contIndent
+		if got := len(next) - len(strings.TrimLeft(next, " ")); got != want || own == 0 {
+			t.Fatalf("continuation indented %d, want %d (the userAgent line is at %d):\n%s\n%s",
+				got, want, own, ln, next)
 		}
 		return
 	}
@@ -84,7 +86,8 @@ func TestWrapDropsIndentWhenTooDeep(t *testing.T) {
 }
 
 // The fold is redone on every resize, both ways: narrowing folds more, and
-// widening past the content unfolds it back to the source lines.
+// widening past the content unfolds it back to the source lines — the fold width
+// grows with the terminal, so a wide enough one leaves nothing to fold.
 func TestWrapFollowsResize(t *testing.T) {
 	m := openBig(t, 120)
 	src := strings.Count(m.renderDetail(), "\n") + 1
