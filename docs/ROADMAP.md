@@ -192,15 +192,33 @@ tidy` raises the `go` directive automatically.
 
 - **Multi-line raw grouping** (stack traces) and general **JSONPath field resolution** (needed
   by the query grid), both deferred out of v0.
-- **Lenient LogEntry normalization** — real producers don't reliably nest non-standard fields
-  under `jsonPayload`; our own backend puts `requestId`, `databaseContext`, `latency`, and even
-  `time` at the **root** (see `docs/backend.log`). Normalize on parse: recognize canonical
-  LogEntry structural keys at the root, treat every other root key as effective payload, and
-  alias variants (`time`→`timestamp`). Gives search + correlation one field namespace.
+- **One field namespace over the root LogEntry** — real producers don't reliably nest
+  non-standard fields under `jsonPayload`, so search and correlation should reach a field by one
+  name wherever the producer put it: a payload `requestId` and a root `requestId` are the same
+  field to whoever is reading. Deliver that with a **resolution order over the root object** —
+  root structural alias, then `jsonPayload.<key>`, then `root.<key>` — not with a second data
+  structure. `Entry.JSON` already holds the root LogEntry and stays the one copy.
   **Partly done**: gcloud's snake_case spellings (`json_payload`, `http_request`, …) and
-  numeric severities are aliased already
-  (`docs/superpowers/specs/2026-09-18-gcloud-input-config-design.md`). Root-key promotion and
-  JSONPath resolution remain.
+  numeric severities are aliased already (`field`, `severityOf` in `internal/adapter`), and
+  `correlationID` already searches root candidates before payload ones. Generalizing that order
+  into JSONPath resolution for the query grid is what remains, together with aliasing variants
+  such as `time`→`timestamp` (already done for the timestamp itself, in
+  `logEntryTimestamp`).
+
+  **Not** by promoting root keys into a rebuilt "effective payload" — recognize the structural
+  keys, call every other root key the payload — which is what this item proposed until
+  2026-09-18. Defining membership by exclusion drops `httpRequest`, `labels`, `resource`,
+  `trace`, `spanId`, `logName` and the rest from anything that consumes the rebuild, and that
+  isn't hypothetical: across a 110-record `gcloud logging read --format=yaml` capture of our own
+  backend, *every* root key present was a canonical structural key, so the effective payload
+  would have been empty for all 110 records. The 24 Cloud Run request logs in that capture
+  (`log_name` …`/logs/run.googleapis.com%2Frequests`) are the extreme case — `http_request`
+  plus metadata, no payload of any kind — and they were precisely the rows `logEntryMessage`
+  used to dump as compact JSON into the list. A resolution order reaches every field the rebuild
+  would have, settles root/payload collisions deterministically by position rather than by merge
+  order, and needs no second copy to keep in sync. (`docs/backend.log`, the capture the original
+  item cited, is no longer in the repo; in today's captures the backend's `requestId`,
+  `databaseContext` and `latency` all sit under `json_payload`.)
 - **Correlated request view** — from any highlighted row, one keystroke shows the *complete*
   timeline for that row's correlation id (`requestId`/`trace`), **including the routine rows
   normally hidden** — "shine a light on the error, then read the whole request's story."
