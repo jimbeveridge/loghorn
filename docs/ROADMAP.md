@@ -209,8 +209,9 @@ tidy` raises the `go` directive automatically.
   `logging.googleapis.com/trace`, `spanId`) and (b) a request-scoped timeline view.
 - TOML config file — **mechanism landed**, see
   `docs/superpowers/specs/2026-09-18-gcloud-input-config-design.md`. The project file is
-  `.loghornconfig`, found by walking up from the working directory (nearest wins entirely),
-  with `~/.config/loghorn/config.toml` as a fallback; it carries an `[input]` section today.
+  `.config/loghorn/config.toml`, found by walking up from the working directory (nearest wins
+  entirely), the user-level `~/.config/loghorn/config.toml` being the walk's final stop
+  rather than a separate mechanism; it carries an `[input]` section today.
   Still v1, as further sections: default + saved filters, context `N`, colors, keybindings,
   alert cooldowns.
 - **QBE spreadsheet query grid**: one column per predicate — header = field (JSONPath), row 2 =

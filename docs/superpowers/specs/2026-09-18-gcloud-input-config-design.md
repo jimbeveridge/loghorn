@@ -1,4 +1,4 @@
-# gcloud multi-line input and the `.loghornconfig` file
+# gcloud multi-line input and the `.config/loghorn/config.toml` file
 
 Date: 2026-09-18
 
@@ -61,27 +61,44 @@ identical, so one normalization serves both.
 
 ### 1. Config subsystem — new package `internal/config`
 
-**File name.** `.loghornconfig`, TOML. Not a file inside `.loghorn/`: that directory holds
-generated logs and is created owner-only and self-ignoring (`.gitignore:43`), so config
-placed there would be gitignored, and project config belongs in version control.
+**Location.** `.config/loghorn/config.toml`, TOML. One name serves both project and
+user-level config, because `~/.config/loghorn/config.toml` is simply what the upward walk
+below finds when it reaches the home directory — there is no second mechanism and no
+separate project filename. A directory rather than a single dotfile also gives the later v1
+sections room: saved filters or keybindings can become sibling files under
+`.config/loghorn/` instead of having to pile into one file.
+
+`.config/loghorn/` is not `.loghorn/`, and the distinction is the point: `.loghorn/` holds
+generated logs, is created owner-only, and ignores itself (`.gitignore:43`), so config placed
+there would be gitignored — while project config belongs in version control.
 
 **Discovery.** `Load(dir string) (Config, string, error)` resolves `dir` to an absolute path
-and walks toward the root looking for `.loghornconfig`. The **first file found wins
-entirely** and the walk stops — one file explains all behaviour, and `-config` can name it.
-A subdirectory needing different settings restates what it needs. If the walk reaches the
-root without a match, fall back to `~/.config/loghorn/config.toml`
-(`docs/ROADMAP.md`'s user-level file). That is a *fallback*, not a merged base layer: if a
-project file exists, the user-level file is not read at all. With neither, built-in defaults
-apply. The returned string is the path actually loaded, empty when defaults were used.
+and walks toward the root, testing `.config/loghorn/config.toml` at each level. The **first
+file found wins entirely** and the walk stops — one file explains all behaviour, and
+`-config` can name it. A subdirectory needing different settings restates what it needs;
+nothing is merged across levels.
 
-This mirrors `internal/logfile/srctree.go:25`, including its careful case: a
-`.loghornconfig` that exists but cannot be read (permissions, say) is an error, never
-skipped in favour of a more distant one that might say something different.
+If the walk reaches the root with no match, it makes one final stop at the user-level file:
+`$XDG_CONFIG_HOME/loghorn/config.toml` when `XDG_CONFIG_HOME` is set and non-empty,
+otherwise `~/.config/loghorn/config.toml`. That stop is what makes personal defaults apply
+when the working directory is *outside* the home tree — run loghorn from `/opt/service` and a
+pure upward walk would never pass through `~`. When the working directory is already under
+`~`, the walk has already tested that path and the final stop changes nothing. The upward
+walk itself always tests the literal `.config/loghorn/config.toml`, since there it is a path
+relative to a project, not an XDG lookup. Cargo resolves `.cargo/config.toml` the same way:
+upward from the working directory, then `$CARGO_HOME`.
+
+With no file anywhere, built-in defaults apply. The returned string is the path actually
+loaded, empty when defaults were used.
+
+This mirrors `internal/logfile/srctree.go:25`, including its careful case: a config file that
+exists but cannot be read (permissions, say) is an error, never skipped in favour of a more
+distant one that might say something different.
 
 **Schema.**
 
 ```toml
-# .loghornconfig
+# .config/loghorn/config.toml
 [input]
 format       = "auto"   # auto | json | yaml | text
 field-naming = "auto"   # auto | camel | snake
@@ -248,13 +265,16 @@ for the source-tree refusal, so all three agree on what "this project" means.
 
 Table-driven unit tests per package.
 
-`internal/config`: nearest-file-wins with files at several depths; walk reaching the root
-with no file; user-level fallback used only when no project file exists; project file
-suppressing the user-level file entirely; a file that exists but cannot be read failing
-rather than being skipped; every key's defaults; unknown key and unknown section warning but
-parsing; unknown value and malformed TOML returning errors naming the file and key. Tests
-build directory trees under `t.TempDir()` and pass an explicit start directory, so nothing
-depends on the real working directory or a real home.
+`internal/config`: nearest-file-wins with `.config/loghorn/config.toml` at several depths;
+the walk stopping at the first match rather than merging; a walk reaching the root with no
+match falling through to the user-level file; a project file suppressing the user-level file
+entirely; the user-level stop still applying when the start directory is outside the home
+tree; `XDG_CONFIG_HOME` honoured for that stop when set and ignored when empty; a file that
+exists but cannot be read failing rather than being skipped; every key's defaults; unknown
+key and unknown section warning but parsing; unknown value and malformed TOML returning
+errors naming the file and key. Tests build directory trees under `t.TempDir()` and pass an
+explicit start directory and an injected home/XDG path, so nothing depends on the real
+working directory or the developer's real home.
 
 `internal/ingest`: first-line detection for each of the three modes and each explicit
 `format` override; the leading `[` dropped; a multi-line object emitted as one record; braces
@@ -281,10 +301,11 @@ without carrying 7,500 lines.
 ## ROADMAP changes
 
 - The v1 bullet specifying `~/.config/loghorn/config.toml` overridable by `./loghorn.toml`
-  is superseded: the project file is `.loghornconfig`, found by walking up from the working
-  directory, nearest wins entirely, with the user-level file as a fallback. Its remaining
-  content (saved filters, context `N`, colours, keybindings, alert cooldowns) stays v1 and
-  becomes additional sections.
+  is superseded by a single name: `.config/loghorn/config.toml`, found by walking up from the
+  working directory, nearest wins entirely, with the user-level file as the walk's final
+  stop rather than a separate mechanism. Its remaining content (saved filters, context `N`,
+  colours, keybindings, alert cooldowns) stays v1 and becomes additional sections, or sibling
+  files under `.config/loghorn/`.
 - The "Lenient LogEntry normalization" bullet is narrowed, not closed: gcloud's snake_case
   aliases and numeric severity are handled here; promoting arbitrary root keys to effective
   payload and JSONPath resolution remain v1.
