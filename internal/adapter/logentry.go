@@ -142,12 +142,19 @@ var severityLadder = []struct {
 // takes the nearest one at or below it, so a future intermediate code degrades
 // sensibly instead of becoming DEFAULT. A negative or fractional value is no
 // LogSeverity code at all, so it is DEFAULT.
+//
+// The comparison stays in float space rather than converting to int: a
+// converted float too large for an int is implementation-dependent in Go, and
+// {"severity":1e19} parses cleanly and is integral, so it reaches here. On
+// arm64 int(n) saturates high and the entry became EMERGENCY; on amd64 it
+// wraps and the same entry became DEFAULT. Comparing the float keeps the
+// ladder's own answer — 1e19 is above 800, so EMERGENCY — on every machine.
 func numericSeverity(n float64) entry.Severity {
 	if n < 0 || n != math.Trunc(n) {
 		return entry.SevDefault
 	}
 	for _, l := range severityLadder {
-		if int(n) >= l.code {
+		if n >= float64(l.code) {
 			return l.sev
 		}
 	}
@@ -188,11 +195,11 @@ func logEntryMessage(obj map[string]any, naming config.FieldNaming) string {
 }
 
 // correlationCandidates are checked in order, at the root then inside the
-// payload. The root list carries gcloud's spelling (span_id) directly rather
-// than going through snakeCase, because two of these keys are neither
-// camelCase nor gcloud's to rename. The payload is whatever the application
-// emitted — gcloud renames only LogEntry's own fields — so payload keys get no
-// snake_case variants.
+// payload — both phases share this one list, so gcloud's span_id spelling is
+// recognised in the payload too, not just at the root. What the payload phase
+// does not get is snakeCase translation of the camelCase candidates
+// (requestId, spanId): the payload is whatever the application emitted, and
+// gcloud renames only LogEntry's own fields, never the application's.
 // Captured in v0; the correlated request view that consumes it is a v1 feature.
 var correlationCandidates = []string{
 	"trace", "requestId", "logging.googleapis.com/trace",

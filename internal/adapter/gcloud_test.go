@@ -145,6 +145,26 @@ func TestNumericSeverityLadder(t *testing.T) {
 	}
 }
 
+// A severity too large for an int must not depend on the machine. int(n) on an
+// out-of-range float is implementation-dependent in Go: 1e19 parses cleanly and
+// is integral, so it reaches the ladder, and it used to saturate high on arm64
+// (EMERGENCY) while wrapping on amd64 (DEFAULT). The ladder's own rule —
+// nearest code at or below — says EMERGENCY, everywhere.
+func TestHugeNumericSeverityIsArchitectureIndependent(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want entry.Severity
+	}{
+		{"1e19", entry.SevEmergency},
+		{"99999999999999999999", entry.SevEmergency},
+		{"-1e19", entry.SevDefault},
+	} {
+		if e := ParseLine([]byte(`{"severity":` + tc.in + `}`)); e.Severity != tc.want {
+			t.Errorf("severity %s = %v, want %v", tc.in, e.Severity, tc.want)
+		}
+	}
+}
+
 func TestSeverityModeRestrictions(t *testing.T) {
 	if e := New(config.Input{Severity: config.SeverityString}).ParseLine([]byte(`{"severity":500}`)); e.Severity != entry.SevDefault {
 		t.Errorf("Severity = %v under string mode, want SevDefault for a number", e.Severity)
