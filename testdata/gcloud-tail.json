@@ -1,0 +1,40 @@
+[
+  {
+    "http_request": {
+      "request_method": "GET",
+      "status": 204,
+      "user_agent": "Mozilla/5.0 (Macintosh) {not-a-brace} [nor-this]"
+    },
+    "insert_id": "6aad671100091ffaa983635f",
+    "log_name": "projects/anvil-pulse-7451/logs/run.googleapis.com%2Frequests",
+    "receive_timestamp": "2026-09-18T16:30:09.936810442Z",
+    "resource": {
+      "labels": {
+        "service_name": "taa-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": 200,
+    "span_id": "43e3c93c8a43b1cb",
+    "timestamp": "2026-09-18T16:30:09.586452Z"
+  },
+WARNING: gcloud notice interleaved on the same stream
+  {
+    "error_groups": [],
+    "json_payload": {
+      "message": "Database: QUERY failed",
+      "requestId": "f17c46797e7721ce34df0c5a65fdac5d"
+    },
+    "severity": 500,
+    "timestamp": "2026-09-18T16:45:24.697Z"
+  },
+  {
+    "http_request": {
+      "status": 503
+    },
+    "severity": 500,
+    "timestamp": "2026-09-18T16:45:25.100Z"
+  },
+  {
+    "json_payload": {
+      "message": "cut off by ctrl-c

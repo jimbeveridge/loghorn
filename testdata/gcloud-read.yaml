@@ -1,0 +1,19 @@
+---
+insert_id: 6aad6aa4000aa039f4a1a513
+json_payload:
+  message: 'Database: QUERY returned 1 row'
+  requestId: f17c46797e7721ce34df0c5a65fdac5d
+log_name: projects/anvil-pulse-7451/logs/run.googleapis.com%2Fstdout
+receive_timestamp: '2026-09-18T16:45:24.986702005Z'
+severity: 200
+span_id: ''
+timestamp: '2026-09-18T16:45:24.697Z'
+---
+http_request:
+  request_method: GET
+  status: 503
+json_payload:
+  message: upstream unavailable
+severity: 500
+span_id: 43e3c93c8a43b1cb
+timestamp: '2026-09-18T16:45:25.000Z'
