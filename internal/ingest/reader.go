@@ -50,7 +50,11 @@ func lines(br *bufio.Reader, emit func(line []byte)) error {
 // to retain it.
 func Records(r io.Reader, format config.Format, emit func(rec []byte)) error {
 	br := bufio.NewReader(r)
-	if format == config.FormatAuto {
+	switch format {
+	case config.FormatJSON, config.FormatYAML, config.FormatText:
+		// An explicit framing, honoured as given.
+	default:
+		// FormatAuto, and any zero value, which must behave as auto.
 		format = detect(br)
 	}
 	switch format {
@@ -70,23 +74,48 @@ const detectPeek = 512
 
 // detect reports the framing the stream's first line indicates, without
 // consuming any of it.
+//
+// The peek grows to the first newline rather than asking for detectPeek up
+// front: bufio.Reader.Peek fills in a loop until it has the bytes asked for,
+// so a single Peek(detectPeek) would stall a quiet producer until 512 bytes
+// existed and no record would be emitted before then. Waiting for the newline
+// instead costs nothing, because whichever framing wins, its next act is to
+// read a whole line — which blocks for that same newline. Deciding from a
+// partial first line is the alternative and is worse: a wrong guess misframes
+// every record in the stream, not just the first.
 func detect(br *bufio.Reader) config.Format {
-	head, err := br.Peek(detectPeek)
-	if len(head) == 0 {
-		return config.FormatText
-	}
-	end := bytes.IndexByte(head, '\n')
-	if end < 0 {
-		if !errors.Is(err, io.EOF) {
-			// The first line runs past the peek, so it is no marker.
+	for n := 1; ; {
+		head, err := br.Peek(n)
+		if i := bytes.IndexByte(head, '\n'); i >= 0 {
+			return framing(head[:i])
+		}
+		if err != nil {
+			// The stream ended, so this prefix is the whole first line.
+			return framing(head)
+		}
+		if n >= detectPeek {
+			// A first line this long is no framing marker.
 			return config.FormatText
 		}
-		end = len(head) // the whole stream is one unterminated line
+		// Bytes that have already arrived are free; past them, ask for one
+		// more, which is the smallest wait that can still make progress.
+		if buffered := br.Buffered(); buffered > n {
+			n = buffered
+		} else {
+			n++
+		}
+		if n > detectPeek {
+			n = detectPeek
+		}
 	}
-	switch first := bytes.TrimRight(head[:end], " \t\r"); {
-	case bytes.Equal(first, []byte("[")):
+}
+
+// framing maps a stream's first line to its record framing.
+func framing(first []byte) config.Format {
+	switch t := bytes.TrimRight(first, " \t\r"); {
+	case bytes.Equal(t, []byte("[")):
 		return config.FormatJSON
-	case bytes.HasPrefix(first, []byte("--")):
+	case bytes.HasPrefix(t, []byte("--")):
 		return config.FormatYAML
 	}
 	return config.FormatText

@@ -1,8 +1,10 @@
 package ingest
 
 import (
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jimbeveridge/loghorn/internal/config"
 )
@@ -220,4 +222,50 @@ func TestOversizeRecordIsEmittedAndScannerResets(t *testing.T) {
 	if got[len(got)-1] != `{"a":1}` {
 		t.Errorf("last record = %q, want the scanner to have reset and found the next object", got[len(got)-1])
 	}
+}
+
+// A zero-value Format must behave as auto, since Task 5 wires a struct field
+// straight into this parameter and the plan requires that tolerance.
+func TestZeroValueFormatDetects(t *testing.T) {
+	got := collectAs(t, config.Format(""), tailStream)
+	if len(got) != 2 {
+		t.Fatalf("got %d records, want 2: a zero-value Format must auto-detect, not line-split:\n%q", len(got), got)
+	}
+}
+
+// Detection must not wait for detectPeek bytes. A reader that yields a short
+// first line and then blocks forever would hang the old Peek(512).
+func TestDetectionDoesNotWaitForAFullPeek(t *testing.T) {
+	done := make(chan []string, 1)
+	go func() {
+		var got []string
+		// blockAfter yields "[\n" then blocks, so detection must decide from
+		// the first newline alone.
+		_ = Records(blockAfter("[\n  {\"a\":1}\n"), config.FormatAuto, func(rec []byte) {
+			got = append(got, string(rec))
+			if len(got) == 1 {
+				done <- got
+			}
+		})
+	}()
+	select {
+	case got := <-done:
+		if got[0] != `{"a":1}` {
+			t.Fatalf("first record = %q, want the object", got[0])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no record emitted: detection blocked waiting for more input than the first line")
+	}
+}
+
+// blockAfter returns a reader that serves s and then blocks forever, standing
+// in for a live producer that has gone quiet.
+func blockAfter(s string) io.Reader {
+	return io.MultiReader(strings.NewReader(s), blockingReader{})
+}
+
+type blockingReader struct{}
+
+func (blockingReader) Read([]byte) (int, error) {
+	select {} // a live source with nothing to say yet
 }
