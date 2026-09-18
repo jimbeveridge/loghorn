@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	_ "time/tzdata" // America/Los_Angeles without relying on the host's zoneinfo
@@ -113,13 +114,52 @@ func TestRecordSinkCallsOnFailOnce(t *testing.T) {
 	}
 }
 
+// recordSink must compact a record on its way to the log file: the file holds
+// one record per line, and -historical replay depends on it. Asserted here
+// because nothing else did — removing the CompactRecord call from recordSink
+// left the whole suite passing.
+func TestRecordSinkCompactsMultiLineRecords(t *testing.T) {
+	dir := t.TempDir()
+	w, err := logfile.Open(dir, time.Now, time.Local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	var failures int
+	sink := recordSink(w, func(error) { failures++ })
+	sink([]byte("{\n  \"severity\": 500,\n  \"insert_id\": \"a1\"\n}"))
+	// A YAML document is the one record allowed to stay multi-line, because
+	// replay re-detects its framing and re-groups it.
+	sink([]byte("---\nseverity: 500\nmessage: keeps its lines"))
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if failures != 0 {
+		t.Fatalf("onFail ran %d times, want 0", failures)
+	}
+
+	b, err := os.ReadFile(filepath.Join(dir, "loghorn.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `{"severity":500,"insert_id":"a1"}`+"\n") {
+		t.Errorf("the multi-line JSON record was not compacted onto one line:\n%q", got)
+	}
+	if !strings.Contains(got, "---\nseverity: 500\nmessage: keeps its lines\n") {
+		t.Errorf("the YAML document should keep its newlines:\n%q", got)
+	}
+}
+
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.t }
 
-// configFor is what main uses to resolve the config: the working directory
+// main resolves its config with config.Load(cwd): the working directory
 // anchors it, the same as .loghorn/ and the source-tree refusal, so all three
-// agree on what "this project" means.
+// agree on what "this project" means. This pins that call's contract —
+// coverage of the walk itself belongs to package config.
 func TestConfigForUsesWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, config.RelPath)

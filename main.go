@@ -66,10 +66,11 @@ stdin redirected from a file, so from cron or CI pass </dev/null.
 
 Settings come from .config/loghorn/config.toml, found by walking up from the
 directory loghorn starts in; the nearest one wins outright, and if there is
-none, ~/.config/loghorn/config.toml applies. It selects how input is framed
-(format) and how LogEntry fields and severities are read (field-naming,
-severity) — gcloud's snake_case and numeric severities are accepted by
-default. Run with -config to see which file is in effect.
+none, $XDG_CONFIG_HOME/loghorn/config.toml or ~/.config/loghorn/config.toml
+applies. It selects how input is framed (format) and how LogEntry fields and
+severities are read (field-naming, severity) — gcloud's snake_case and
+numeric severities are accepted by default. Run with -config to see which
+file is in effect.
 
 Examples:
   loghorn -- npm run dev
@@ -125,15 +126,25 @@ func main() {
 		os.Exit(2)
 	}
 
-	// The config file is resolved from the working directory, the same anchor
-	// as .loghorn/ and the source-tree refusal, so all three agree on what
-	// "this project" means. A bad file is a usage error like a bad --theme,
-	// reported before anything is launched or written.
-	cwd, _ := os.Getwd()
-	cfg, cfgPath, err := config.Load(cwd)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "loghorn:", err)
-		os.Exit(2)
+	// One os.Getwd serves both the config file and the source-tree refusal
+	// below, which have to agree on what "this project" means. A cwd that
+	// can't be resolved (e.g. it was deleted out from under the process) is
+	// not fatal: the source-tree check fails open by design, and config
+	// discovery has nowhere to walk from, so both are skipped and the
+	// built-in defaults apply rather than the whole run failing over it.
+	// A bad config FILE is still a usage error like a bad --theme, reported
+	// before anything is launched or written.
+	cwd, cwdErr := os.Getwd()
+	cfg, cfgPath := config.Default(), ""
+	if cwdErr != nil {
+		fmt.Fprintln(os.Stderr, "loghorn: can't resolve the working directory, using default settings:", cwdErr)
+	} else {
+		var err error
+		cfg, cfgPath, err = config.Load(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "loghorn:", err)
+			os.Exit(2)
+		}
 	}
 	if *configFlag {
 		if cfgPath == "" {
@@ -141,17 +152,17 @@ func main() {
 		} else {
 			fmt.Println(cfgPath)
 		}
-		fmt.Print(cfg)
+		fmt.Print(cfg.String())
 		return
 	}
 
 	// Refuse to run from loghorn's own source tree before anything is launched or
 	// written. loghorn is meant to be run from the project it watches, and
-	// loghorn's own source tree is never that project.
-	// A cwd that can't be resolved (e.g. it was deleted out from under the
-	// process) can't be the source tree either, so skip the check rather than
-	// fail the whole run over it.
-	if cwd, err := os.Getwd(); err == nil {
+	// loghorn's own source tree is never that project. A cwd that can't be
+	// resolved (e.g. it was deleted out from under the process) can't be the
+	// source tree either, so skip the check rather than fail the whole run
+	// over it — the same cwd resolved above for config discovery.
+	if cwdErr == nil {
 		if root, ok := logfile.SourceTree(cwd); ok {
 			fmt.Fprintf(os.Stderr, "loghorn: refusing to run inside the loghorn source tree (%s);\nrun it from your project's directory\n", root)
 			os.Exit(1)
@@ -201,10 +212,11 @@ func main() {
 	if *filterMode {
 		if *historical {
 			// Each file is run through the engine on its own rather than
-			// concatenated, since ingest.Records detects YAML vs line format by
-			// peeking the start of its stream and different stored days can come
-			// from different producers. No sink: -historical never writes to the
-			// log file.
+			// concatenated: with format left "auto", ingest.Records peeks the
+			// start of each stream to choose among JSON, YAML and line framing,
+			// and different stored days can come from different producers. A
+			// pinned format skips that detection but each file is still framed
+			// independently. No sink: -historical never writes to the log file.
 			for _, f := range historicalFiles {
 				if err := headless.Run(f, os.Stdout, cfg.Input, nil); err != nil {
 					fmt.Fprintln(os.Stderr, "loghorn:", err)
@@ -315,8 +327,9 @@ func main() {
 		// One goroutine loops over the sources in order rather than one per
 		// source: live mode's list always has exactly one element, and
 		// -historical's stored files must be read oldest-first, in sequence, not
-		// interleaved — each ingest.Records call also independently detects
-		// YAML vs line format by peeking its own stream's start.
+		// interleaved — with format left "auto", each ingest.Records call also
+		// independently detects JSON, YAML or line framing by peeking its own
+		// stream's start; a pinned format applies to every source alike.
 		var err error
 		for _, src := range sources {
 			err = ingest.Records(src, cfg.Input.Format, func(line []byte) {
