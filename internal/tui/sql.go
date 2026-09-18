@@ -11,8 +11,8 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/entry"
 )
 
-// SQL logged under a "metadata" object's "statement" key is shown formatted and
-// coloured in the detail pane. Formatting is slow (see sqlfmt.Format), so it runs
+// SQL logged under a "metadata" object is shown formatted and coloured in the
+// detail pane — see sqlStatementAt for the shapes that qualify. Formatting is slow (see sqlfmt.Format), so it runs
 // as a command when the pane opens and lands back as a sqlFormattedMsg. Until then
 // the statement shows as logged, still coloured — and stays that way if the
 // formatter can't parse it, which is no worse than before.
@@ -25,10 +25,25 @@ import (
 var sqlLexer = chroma.Coalesce(lexers.Get("sql"))
 
 // sqlStatementAt reports whether the value under key, inside a map that was itself
-// the value of parent, is a SQL statement to format.
+// the value of parent, is a SQL statement to format. Two shapes qualify:
+//
+//	metadata.statement   the statement as a bare string
+//	statement.sql        the statement object a driver logs, which carries its own
+//	                     flags (rowsAsArray, …) alongside the SQL
+//
+// Each is anchored by the key above it, so a "statement" or a "sql" anywhere else
+// in an entry stays an ordinary string. Recognizing only the first shape left our
+// own backend's queries — which log the second — rendered as one long green line,
+// hard-wrapped as prose and never formatted.
 func sqlStatementAt(parent, key string, v any) (string, bool) {
 	s, ok := v.(string)
-	if !ok || parent != "metadata" || key != "statement" || strings.TrimSpace(s) == "" {
+	if !ok || strings.TrimSpace(s) == "" {
+		return "", false
+	}
+	switch {
+	case parent == "metadata" && key == "statement":
+	case parent == "statement" && key == "sql":
+	default:
 		return "", false
 	}
 	return s, true

@@ -224,3 +224,45 @@ func TestHighlightSQL(t *testing.T) {
 		t.Fatalf("plain should be the statement's lines untouched: %q", got)
 	}
 }
+
+// The shape our backend actually logs: metadata.statement is an object, and the
+// SQL sits under its "sql" key alongside the driver's own flags. Detecting only
+// a string statement left every real query rendered as one long green line —
+// hard-wrapped as prose, never formatted, never coloured as SQL.
+func TestStatementObjectSQLIsSQL(t *testing.T) {
+	v := map[string]any{
+		"metadata": map[string]any{
+			"operation": "QUERY",
+			"statement": map[string]any{
+				"rowsAsArray": true,
+				"sql":         "SELECT a, b FROM t WHERE id = $1",
+			},
+		},
+	}
+	got := renderYAML(v, yamlOpts{plain: true, sql: func(s string) string { return s + "\nFORMATTED" }})
+	want := "statement:\n    rowsAsArray: true\n    sql: |-\n      SELECT a, b FROM t WHERE id = $1\n      FORMATTED"
+	if !strings.Contains(got, want) {
+		t.Fatalf("want\n%s\nin\n%s", want, got)
+	}
+	if got := sqlStatements(v); !reflect.DeepEqual(got, []string{"SELECT a, b FROM t WHERE id = $1"}) {
+		t.Fatalf("sqlStatements = %q, want the statement object's sql", got)
+	}
+}
+
+// A "sql" key only reads as SQL directly under a "statement" object, the same
+// way a bare "statement" only reads as SQL directly under "metadata".
+func TestSQLKeyOutsideStatementIsOrdinary(t *testing.T) {
+	v := map[string]any{
+		"sql":   "SELECT 1",
+		"other": map[string]any{"sql": "SELECT 2"},
+	}
+	got := renderYAML(v, yamlOpts{plain: true, sql: func(s string) string { return s + "\nFORMATTED" }})
+	for _, want := range []string{"\nsql: SELECT 1", "other:\n  sql: SELECT 2"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("want\n%s\nin\n%s", want, got)
+		}
+	}
+	if got := sqlStatements(v); len(got) != 0 {
+		t.Fatalf("sqlStatements = %q, want none", got)
+	}
+}
