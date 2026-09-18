@@ -127,11 +127,18 @@ func main() {
 	}
 
 	// One os.Getwd serves both the config file and the source-tree refusal
-	// below, which have to agree on what "this project" means. A cwd that
-	// can't be resolved (e.g. it was deleted out from under the process) is
-	// not fatal: the source-tree check fails open by design, and config
-	// discovery has nowhere to walk from, so both are skipped and the
-	// built-in defaults apply rather than the whole run failing over it.
+	// below. logDir (below) makes its own separate call for the log file's
+	// directory; the two calls agree with each other only because nothing in
+	// this program calls os.Chdir, not because there is one shared
+	// resolution. A cwd that can't be resolved here (e.g. it was deleted out
+	// from under the process) is not fatal for either of these two checks:
+	// the source-tree check fails open by design, and config discovery has
+	// nowhere to walk from, so both are skipped and the built-in defaults
+	// apply rather than the whole run failing over it. That fail-open is
+	// only partial: a normal run still needs the log file, and logDir's own
+	// os.Getwd() exits 1 there on the same unresolvable cwd, so surviving it
+	// is only possible for -config and for replaying a file over stdin,
+	// which never open the log file at all.
 	// A bad config FILE is still a usage error like a bad --theme, reported
 	// before anything is launched or written.
 	cwd, cwdErr := os.Getwd()

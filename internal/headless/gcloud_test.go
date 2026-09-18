@@ -45,9 +45,11 @@ func TestGcloudTailJSONFixture(t *testing.T) {
 		t.Errorf("record 0 lost the braced string:\n%s", records[0])
 	}
 
-	// A numeric severity of 500 is an error, so that one prints; the 200
-	// records do not. This is the whole point of the change: importance works
-	// on gcloud output.
+	// A numeric severity of 500 is an error, so that one prints. Severity
+	// alone does not carry every severity-200 record, though: one of them
+	// also has http_request.status 503 and prints on that basis, checked
+	// below. This is the whole point of the change: importance works on
+	// gcloud output, whichever field carries it.
 	if !strings.Contains(out, "Database: QUERY failed") {
 		t.Errorf("severity 500 record should be important:\n%s", out)
 	}

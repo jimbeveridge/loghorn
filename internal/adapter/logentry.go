@@ -42,7 +42,7 @@ func fromLogEntryObject(raw []byte, obj map[string]any, in config.Input) entry.E
 	e.Severity = severityOf(obj, in.Severity)
 	if hr, ok := fieldMap(obj, "httpRequest", in.FieldNaming); ok {
 		if st, ok := hr["status"].(float64); ok {
-			e.HTTPStatus = int(st)
+			e.HTTPStatus = httpStatus(st)
 		}
 	}
 	e.Timestamp = logEntryTimestamp(obj)
@@ -159,6 +159,19 @@ func numericSeverity(n float64) entry.Severity {
 		}
 	}
 	return entry.SevDefault
+}
+
+// httpStatus narrows a decoded status without an implementation-dependent
+// conversion: a float too large for an int converts unpredictably in Go —
+// arm64 saturates, amd64 wraps — and HTTPStatus feeds engine.IsImportant's
+// ">= 500" test, so {"status":1e19} made one machine call a record important
+// and the other call it routine. An HTTP status is three digits; anything
+// outside that range is not a status, so it reads as absent.
+func httpStatus(n float64) int {
+	if n != math.Trunc(n) || n < 100 || n > 599 {
+		return 0
+	}
+	return int(n)
 }
 
 // logEntryTimestamp parses the entry's own timestamp. Canonical LogEntry uses

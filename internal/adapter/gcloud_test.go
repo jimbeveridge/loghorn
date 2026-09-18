@@ -207,3 +207,30 @@ func TestZeroInputBehavesAsAuto(t *testing.T) {
 		t.Error("LogEntryAdapter{} should still detect a JSON object")
 	}
 }
+
+// A status too large for an int must not depend on the machine. int(n) on an
+// out-of-range float is implementation-dependent in Go, and HTTPStatus feeds
+// engine.IsImportant's ">= 500" test, so 1e19 used to make a record important
+// on arm64 and routine on amd64.
+func TestHTTPStatusIsArchitectureIndependent(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want int
+	}{
+		{"503", 503},
+		{"200", 200},
+		{"100", 100},
+		{"599", 599},
+		// Not HTTP statuses, so absent rather than wrapped or saturated.
+		{"1e19", 0},
+		{"99999999999999999999", 0},
+		{"-1e19", 0},
+		{"600", 0},
+		{"99", 0},
+		{"503.5", 0},
+	} {
+		if e := ParseLine([]byte(`{"http_request":{"status":` + tc.in + `}}`)); e.HTTPStatus != tc.want {
+			t.Errorf("status %s = %d, want %d", tc.in, e.HTTPStatus, tc.want)
+		}
+	}
+}

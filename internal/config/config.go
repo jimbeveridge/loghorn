@@ -147,8 +147,12 @@ func (l Loader) find() (string, []byte, error) {
 // userLevel is the walk's final stop. Without it, personal defaults would
 // apply only when the working directory happened to sit under the home
 // directory: started from /opt/service the walk never passes through it. When
-// the working directory is already under home, the walk has tested this path
-// already and this stop changes nothing.
+// the working directory is already under home and XDG is unset, the walk has
+// already tested ~/.config/loghorn/config.toml and this stop changes nothing
+// — but when XDG_CONFIG_HOME is set, this stop tests $XDG_CONFIG_HOME instead
+// of ~/.config, and the walk reaches the literal ~/.config/loghorn/config.toml
+// first and returns before this stop is ever consulted. So for anyone working
+// inside their own home tree, XDG_CONFIG_HOME does not redirect config at all.
 func (l Loader) userLevel() (string, []byte, error) {
 	var p string
 	switch {

@@ -255,3 +255,38 @@ func TestStringRendersEffectiveSettings(t *testing.T) {
 		}
 	}
 }
+
+// The surprising direction, pinned because it reads backwards from the XDG
+// convention: for a working directory under $HOME, the upward walk reaches
+// ~/.config/loghorn/config.toml before the user-level stop is ever consulted,
+// so XDG_CONFIG_HOME does not redirect config for anyone working inside their
+// own home tree.
+func TestHomeWalkBeatsXDGForACwdUnderHome(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, "[input]\nformat = \"yaml\"\n")
+
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	p := filepath.Join(xdg, "loghorn", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("[input]\nformat = \"json\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	work := filepath.Join(home, "work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, path, err := Loader{Dir: work, XDG: xdg, Home: home}.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := filepath.Join(home, RelPath); path != want {
+		t.Errorf("path = %q, want %q: the walk reaches ~/.config before the XDG stop", path, want)
+	}
+	if cfg.Input.Format != FormatYAML {
+		t.Errorf("Format = %q, want yaml from the home file", cfg.Input.Format)
+	}
+}
