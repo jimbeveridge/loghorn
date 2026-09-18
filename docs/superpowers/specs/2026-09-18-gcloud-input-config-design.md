@@ -90,9 +90,10 @@ when the working directory is *outside* the home tree — run loghorn from `/opt
 pure upward walk would never pass through `~`. When the working directory is already under
 `~`, the walk reaches `~/.config/loghorn/config.toml` on its own and the final stop is never
 consulted. That has a consequence worth stating plainly, because it reads backwards from the
-XDG convention: **for a working directory inside the home tree, setting `XDG_CONFIG_HOME`
-does not redirect loghorn's config**, since the walk finds the literal `~/.config` path
-first. The upward walk always tests the literal `.config/loghorn/config.toml` — there it is
+XDG convention: **for a working directory inside the home tree, once
+`~/.config/loghorn/config.toml` exists, setting `XDG_CONFIG_HOME` does not redirect
+loghorn's config**, since the walk finds that literal path first and stops. With no file
+there, the walk runs to the root and the final stop honours `XDG_CONFIG_HOME` as usual. The upward walk always tests the literal `.config/loghorn/config.toml` — there it is
 a path relative to a project, not an XDG lookup — and `XDG_CONFIG_HOME` governs only the
 final stop, which is what a working directory outside the home tree relies on. Cargo resolves `.cargo/config.toml` the same way:
 upward from the working directory, then `$CARGO_HOME`.
@@ -174,7 +175,9 @@ each file is detected independently; that stays true.
 
 - A line that is empty, or is only array framing — `[`, `]`, `,`, `],` — is dropped. This is
   what ignores the leading `[`.
-- A line whose trimmed text starts with `{` begins a record. Accumulation tracks brace depth
+- A record begins at the first `{` on a line whose preceding text is only array
+  punctuation, so `  {`, `[{` and `, {` all open one while a text line that merely contains
+  a brace does not. Accumulation tracks brace depth
   with a scanner that respects strings and escapes, so a `{` inside `user_agent` or a SQL
   string cannot throw off the count. Scanner state (depth, in-string, escaped) persists
   across lines for the duration of a record.
@@ -223,6 +226,15 @@ Aliases covered, matching the sample key sets exactly:
 | `traceSampled` | `trace_sampled` |
 
 `timestamp`, `trace`, `labels`, `resource` and `severity` are spelled the same either way.
+A status is narrowed to an int only inside 100-599; anything else — out of range, negative,
+fractional, NaN — reads as absent. That is not decoration: `HTTPStatus` feeds
+`engine.IsImportant`'s `>= 500` test, and converting an out-of-range float to an int is
+implementation-dependent in Go, so `{"status":1e19}` once made a record important on arm64
+and routine on amd64. 599 is the ceiling because 5xx is the highest assigned class, and the
+clamp's only observable effect is that a status of 600 or more no longer counts as
+important. gRPC codes (0-16), which sometimes appear in this field, were never important and
+still aren't.
+
 `httpRequest.status` is also spelled `status` in both, so the nested read is unaffected even
 though its siblings (`request_method`, `remote_ip`, `user_agent`) are snake_case.
 

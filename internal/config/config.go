@@ -152,7 +152,9 @@ func (l Loader) find() (string, []byte, error) {
 // — but when XDG_CONFIG_HOME is set, this stop tests $XDG_CONFIG_HOME instead
 // of ~/.config, and the walk reaches the literal ~/.config/loghorn/config.toml
 // first and returns before this stop is ever consulted. So for anyone working
-// inside their own home tree, XDG_CONFIG_HOME does not redirect config at all.
+// inside their own home tree, XDG_CONFIG_HOME stops redirecting config as soon
+// as ~/.config/loghorn/config.toml exists; with no file there the walk runs to
+// the root and this stop honours XDG_CONFIG_HOME as usual.
 func (l Loader) userLevel() (string, []byte, error) {
 	var p string
 	switch {

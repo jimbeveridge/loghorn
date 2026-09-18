@@ -165,8 +165,10 @@ func numericSeverity(n float64) entry.Severity {
 // conversion: a float too large for an int converts unpredictably in Go —
 // arm64 saturates, amd64 wraps — and HTTPStatus feeds engine.IsImportant's
 // ">= 500" test, so {"status":1e19} made one machine call a record important
-// and the other call it routine. An HTTP status is three digits; anything
-// outside that range is not a status, so it reads as absent.
+// and the other call it routine. 5xx is the highest assigned class, so 599 is
+// the ceiling and 100 the floor; a value outside that is not a status and reads
+// as absent rather than being carried through. The only observable effect is
+// that 600 or more no longer counts as important.
 func httpStatus(n float64) int {
 	if n != math.Trunc(n) || n < 100 || n > 599 {
 		return 0
