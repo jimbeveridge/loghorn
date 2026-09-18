@@ -41,8 +41,13 @@ func TestParseLineGcloudJSON(t *testing.T) {
 	if e.Message != "Database: QUERY failed" {
 		t.Errorf("Message = %q, want json_payload.message", e.Message)
 	}
-	if e.CorrelationID != "f17c46797e7721ce34df0c5a65fdac5d" {
-		t.Errorf("CorrelationID = %q, want json_payload.requestId", e.CorrelationID)
+	// The root span_id wins over the payload's requestId: candidates are
+	// checked everywhere at the root before the payload is consulted at all.
+	// This is the pre-existing precedence, deliberately unchanged here —
+	// ROADMAP files a configurable candidate list as a v1 item, and that is
+	// where reordering belongs.
+	if e.CorrelationID != "43e3c93c8a43b1cb" {
+		t.Errorf("CorrelationID = %q, want the root span_id", e.CorrelationID)
 	}
 	if e.Timestamp.IsZero() {
 		t.Error("Timestamp should be parsed")
@@ -158,6 +163,17 @@ func TestCorrelationFromGcloudSpanID(t *testing.T) {
 	}
 	if e := ParseLine([]byte(`{"json_payload":{"requestId":"r1"}}`)); e.CorrelationID != "r1" {
 		t.Errorf("CorrelationID = %q, want json_payload.requestId", e.CorrelationID)
+	}
+}
+
+// Location outranks key rank: every candidate is tried at the root before the
+// payload is consulted, so a root span_id beats a payload requestId even
+// though requestId sits higher in the candidate list. Pinned because the
+// candidate list reads like a pure priority order and isn't one.
+func TestRootCorrelationOutranksPayload(t *testing.T) {
+	e := ParseLine([]byte(`{"span_id":"root-span","json_payload":{"requestId":"payload-req"}}`))
+	if e.CorrelationID != "root-span" {
+		t.Errorf("CorrelationID = %q, want root-span: the root is searched first", e.CorrelationID)
 	}
 }
 

@@ -201,17 +201,13 @@ var correlationCandidates = []string{
 }
 
 func correlationID(obj map[string]any, naming config.FieldNaming) string {
-	// Checked per candidate, root then payload, so priority is by key rank
-	// (trace outranks requestId outranks ... outranks span_id) regardless of
-	// which of the two places a given record happens to carry it — a real
-	// gcloud record can carry both a root span_id and a payload requestId,
-	// and the application-level id should win.
-	jp, hasPayload := fieldMap(obj, "jsonPayload", naming)
 	for _, k := range correlationCandidates {
 		if s, ok := obj[k].(string); ok && s != "" {
 			return s
 		}
-		if hasPayload {
+	}
+	if jp, ok := fieldMap(obj, "jsonPayload", naming); ok {
+		for _, k := range correlationCandidates {
 			if s, ok := jp[k].(string); ok && s != "" {
 				return s
 			}
