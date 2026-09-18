@@ -237,11 +237,22 @@ file's first line is `{`, not `[`, so `-historical` replay would detect line mod
 each record back into per-line fragments. YAML escapes this by luck — its records keep their
 leading `---`, so replay re-detects YAML mode and re-groups them correctly.
 
-Fix: the log-file sink compacts a multi-line JSON record onto one line before writing. A new
-`ingest.CompactRecord(rec []byte) []byte` returns `rec` unchanged when it holds no newline,
-the `json.Compact` result when it is valid JSON, and `rec` unchanged otherwise — so YAML
-documents and multi-line non-JSON pass through untouched. `recordSink` (`main.go:437`) calls
-it; that covers the TUI and `--filter` alike, since both take their sink from there.
+Fix: the log-file sink puts every record that a replay could not reassemble onto one line
+before writing. A new `ingest.CompactRecord(rec []byte) []byte` returns `rec` unchanged when
+it holds no newline, and the `json.Compact` result when the record is valid JSON.
+
+A multi-line record that is *not* valid JSON keeps its newlines only when its first line
+begins `--`. That is precisely the condition a replay's own detection tests, so the records
+allowed to stay multi-line are exactly the records that get re-grouped on the way back in.
+Every other multi-line record has its line breaks collapsed to spaces, with all other bytes
+kept. The case that forces this is the partial object `jsonArray` emits at EOF: a tail
+stopped with Ctrl-C leaves an unclosed object, which is both multi-line and invalid JSON, so
+passing it through verbatim would break the one-record-per-line invariant and return it from
+a replay as three or four junk entries. Compacting unconditionally is not an option — it
+would destroy YAML documents — and dropping the record would lose data.
+
+`recordSink` (`main.go:437`) calls it; that covers the TUI and `--filter` alike, since both
+take their sink from there.
 
 `Entry.Raw` keeps the original pretty-printed bytes, so the detail pane, find
 (`internal/tui/find.go:55`) and yank (`internal/tui/model.go:914`) all still show what
