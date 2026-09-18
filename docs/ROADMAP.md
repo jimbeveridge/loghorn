@@ -197,14 +197,22 @@ tidy` raises the `go` directive automatically.
   `time` at the **root** (see `docs/backend.log`). Normalize on parse: recognize canonical
   LogEntry structural keys at the root, treat every other root key as effective payload, and
   alias variants (`time`→`timestamp`). Gives search + correlation one field namespace.
+  **Partly done**: gcloud's snake_case spellings (`json_payload`, `http_request`, …) and
+  numeric severities are aliased already
+  (`docs/superpowers/specs/2026-09-18-gcloud-input-config-design.md`). Root-key promotion and
+  JSONPath resolution remain.
 - **Correlated request view** — from any highlighted row, one keystroke shows the *complete*
   timeline for that row's correlation id (`requestId`/`trace`), **including the routine rows
   normally hidden** — "shine a light on the error, then read the whole request's story."
   Enabled by the ring already retaining every row; needs (a) correlation-id extraction (first
   present of a configurable candidate list: default `trace`, `requestId`,
   `logging.googleapis.com/trace`, `spanId`) and (b) a request-scoped timeline view.
-- TOML config file (`~/.config/loghorn/config.toml`, overridable by `./loghorn.toml`): default +
-  saved filters, context `N`, colors, keybindings, alert cooldowns.
+- TOML config file — **mechanism landed**, see
+  `docs/superpowers/specs/2026-09-18-gcloud-input-config-design.md`. The project file is
+  `.loghornconfig`, found by walking up from the working directory (nearest wins entirely),
+  with `~/.config/loghorn/config.toml` as a fallback; it carries an `[input]` section today.
+  Still v1, as further sections: default + saved filters, context `N`, colors, keybindings,
+  alert cooldowns.
 - **QBE spreadsheet query grid**: one column per predicate — header = field (JSONPath), row 2 =
   comparator, rows 3+ = zero-or-more values. **AND across columns, OR down a column**, zero
   values = unary comparator.
