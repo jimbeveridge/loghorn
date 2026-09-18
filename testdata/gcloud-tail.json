@@ -32,7 +32,7 @@ WARNING: gcloud notice interleaved on the same stream
     "http_request": {
       "status": 503
     },
-    "severity": 500,
+    "severity": 200,
     "timestamp": "2026-09-18T16:45:25.100Z"
   },
   {
