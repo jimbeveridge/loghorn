@@ -303,6 +303,7 @@ func main() {
 		opts = append(opts, tea.WithInput(tty))
 	}
 	model := tui.NewModel(ch, scrollbackFor(*historical, explicitScrollback, *capacity))
+	model.SetDisplay(cfg.Display)
 	if child != nil {
 		model.SetChild(childControl{r: child, grace: *grace})
 	}

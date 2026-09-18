@@ -290,3 +290,85 @@ func TestHomeWalkBeatsXDGForACwdUnderHome(t *testing.T) {
 		t.Errorf("Format = %q, want yaml from the home file", cfg.Input.Format)
 	}
 }
+
+// [display] unquote-identifiers is off unless a file turns it on: it rewrites
+// the SQL the detail pane shows and yank copies, so it is opt-in.
+func TestDisplayUnquoteIdentifiers(t *testing.T) {
+	if Default().Display.UnquoteIdentifiers {
+		t.Error("unquote-identifiers should default to false")
+	}
+	root := t.TempDir()
+	writeConfig(t, root, "[display]\nunquote-identifiers = true\n")
+	cfg, _, err := loaderAt(root, filepath.Join(root, "nohome")).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Display.UnquoteIdentifiers {
+		t.Error("unquote-identifiers = true should be read from the file")
+	}
+	// The section is independent of [input], which keeps its defaults.
+	if cfg.Input.Format != FormatAuto {
+		t.Errorf("Input.Format = %q, want auto", cfg.Input.Format)
+	}
+	if got := cfg.String(); !strings.Contains(got, "[display]") || !strings.Contains(got, "unquote-identifiers = true") {
+		t.Errorf("String() should render the display section:\n%s", got)
+	}
+}
+
+// keyword-case is an enum, and an unknown value stops the load rather than
+// being ignored: sql-formatter answers an unknown keywordCase by deleting every
+// keyword from the statement, so a typo must never get past the config file.
+func TestDisplayKeywordCase(t *testing.T) {
+	if got := Default().Display.KeywordCase; got != KeywordPreserve {
+		t.Errorf("KeywordCase default = %q, want preserve", got)
+	}
+	root := t.TempDir()
+	writeConfig(t, root, "[display]\nkeyword-case = \"upper\"\n")
+	cfg, _, err := loaderAt(root, filepath.Join(root, "nohome")).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Display.KeywordCase != KeywordUpper {
+		t.Errorf("KeywordCase = %q, want upper", cfg.Display.KeywordCase)
+	}
+
+	bad := t.TempDir()
+	writeConfig(t, bad, "[display]\nkeyword-case = \"shouty\"\n")
+	if _, _, err := loaderAt(bad, filepath.Join(bad, "nohome")).Load(); err == nil {
+		t.Fatal("an unknown keyword-case should be rejected")
+	} else if !strings.Contains(err.Error(), "display.keyword-case") {
+		t.Errorf("error should name the key: %v", err)
+	}
+}
+
+// format-sql is on by default, so the pane lays statements out without a config
+// file — the behaviour loghorn had before the key existed. It is the one display
+// key whose default is true, which is why Default() must be the base every
+// Display value is built from rather than a zero struct.
+func TestDisplayFormatSQL(t *testing.T) {
+	if !Default().Display.FormatSQL {
+		t.Error("format-sql should default to true")
+	}
+	root := t.TempDir()
+	writeConfig(t, root, "[display]\nformat-sql = false\n")
+	cfg, _, err := loaderAt(root, filepath.Join(root, "nohome")).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Display.FormatSQL {
+		t.Error("format-sql = false should be read from the file")
+	}
+	// An unrelated display key leaves it at its default.
+	other := t.TempDir()
+	writeConfig(t, other, "[display]\nunquote-identifiers = true\n")
+	cfg, _, err = loaderAt(other, filepath.Join(other, "nohome")).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Display.FormatSQL {
+		t.Error("format-sql should stay true when the file sets only another key")
+	}
+	if got := cfg.String(); !strings.Contains(got, "format-sql") {
+		t.Errorf("String() should render format-sql:\n%s", got)
+	}
+}

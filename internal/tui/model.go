@@ -13,6 +13,7 @@ import (
 
 	"github.com/jimbeveridge/loghorn/internal/buffer"
 	"github.com/jimbeveridge/loghorn/internal/clipboard"
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/entry"
 	"github.com/jimbeveridge/loghorn/internal/sqlfmt"
 )
@@ -111,7 +112,7 @@ type Model struct {
 	// produces them — injectable, so tests don't wait on the real formatter.
 	// See sql.go.
 	sql       sqlCache
-	formatSQL func(string) (string, error)
+	formatSQL func(string, sqlfmt.Options) (string, error)
 
 	// showHelp overlays the key reference. Keys you reach for rarely live here
 	// rather than on the status bar, which has to stay readable at a glance; the
@@ -150,6 +151,13 @@ type Model struct {
 	// see statusBar.
 	historical bool
 
+	// display is the [display] config section. It only ever affects how an entry
+	// is drawn, never what was parsed or stored. NewModel seeds it from
+	// config.Default(), because not every default here is a zero value —
+	// format-sql is on — and a Model given no configuration must still behave as
+	// loghorn did before the section existed.
+	display config.Display
+
 	width, height int
 }
 
@@ -173,6 +181,10 @@ func LogFileOff(detail string) tea.Msg { return logFileOffMsg{Detail: detail} }
 // only the bar's mode word changes.
 func (m *Model) SetHistorical() { m.historical = true }
 
+// SetDisplay applies the [display] config section. A Model without one draws
+// entries the way loghorn did before the section existed.
+func (m *Model) SetDisplay(d config.Display) { m.display = d }
+
 // doubleClickWindow is how close two clicks on the same row must be to count as
 // a double-click.
 const doubleClickWindow = 500 * time.Millisecond
@@ -188,7 +200,11 @@ func NewModel(ch <-chan entry.Entry, capacity int) Model {
 		now:          time.Now,
 		copy:         clipboard.Copy,
 		sql:          sqlCache{},
-		formatSQL:    sqlfmt.Format,
+		formatSQL:    sqlfmt.FormatWith,
+		// Not the zero Display: format-sql defaults to on, so a Model that is
+		// never given a configuration has to start from the same defaults the
+		// config file layers over, not from an empty struct.
+		display: config.Default().Display,
 	}
 	// selected starts at 0 with no rows, which is already the shade: loghorn opens
 	// live.
@@ -913,7 +929,29 @@ func (m Model) detailText(plain bool) string {
 	if e.JSON == nil {
 		return string(e.Raw)
 	}
-	return renderYAML(e.JSON, yamlOpts{plain: plain, sql: m.sql.text})
+	return renderYAML(e.JSON, yamlOpts{plain: plain, sql: m.sqlText})
+}
+
+// sqlText is the text to show for a statement as logged: the formatted statement
+// once it has landed, with redundant identifier quoting dropped when [display]
+// unquote-identifiers is on. Unquoting happens here rather than on the way into
+// the cache so that the cache stays keyed and valued by what the formatter
+// produced, and so that a statement still waiting to be formatted — shown as
+// logged — reads the same way as one that has been.
+// sqlOptions is how the configured display settings reach the formatter. It is
+// read when a format is started, not when the Model is built, so the formatter
+// itself stays injectable — a test replaces formatSQL without having to care
+// what SetDisplay did.
+func (m Model) sqlOptions() sqlfmt.Options {
+	return sqlfmt.Options{KeywordCase: string(m.display.KeywordCase)}
+}
+
+func (m Model) sqlText(stmt string) string {
+	text := m.sql.text(stmt)
+	if m.display.UnquoteIdentifiers {
+		text = unquoteIdentifiers(text)
+	}
+	return text
 }
 
 // wrappedDetail renders the inspected entry and folds any line wider than the

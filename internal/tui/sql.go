@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -12,10 +13,11 @@ import (
 )
 
 // SQL logged under a "metadata" object is shown formatted and coloured in the
-// detail pane — see sqlStatementAt for the shapes that qualify. Formatting is slow (see sqlfmt.Format), so it runs
-// as a command when the pane opens and lands back as a sqlFormattedMsg. Until then
-// the statement shows as logged, still coloured — and stays that way if the
-// formatter can't parse it, which is no worse than before.
+// detail pane — see sqlStatementAt for the shapes that qualify. Formatting is
+// slow (see sqlfmt.Format), so it runs as a command when the pane opens and lands
+// back as a sqlFormattedMsg. Until then the statement shows as logged, still
+// coloured — and stays that way if the formatter can't parse it, which is no
+// worse than before.
 //
 // The formatter has no line width to give it, but it doesn't need one: it puts
 // each clause and select item on its own line. A resize re-wraps whatever is
@@ -74,6 +76,57 @@ func sqlStatements(v any) []string {
 	return out
 }
 
+// bareIdentifier matches an identifier that needs no quoting: a word of the
+// characters an unquoted SQL name may hold, not starting with a digit. The
+// lexer settles the harder question — whether the word is reserved — so this
+// only has to rule out shapes no dialect would accept bare.
+var bareIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]*$`)
+
+// unquoteIdentifiers drops the backticks around an identifier that does not need
+// them, so a generated statement reads as SQL rather than as punctuation:
+//
+//	select `id`, `user_id` from `grants`   ->  select id, user_id from grants
+//
+// ORMs quote every identifier unconditionally, which is right for them and
+// unreadable for us. Dropping the quotes is only safe where they carry no
+// meaning, and the SQL lexer already decides that: it emits each backtick as its
+// own Operator token and lexes what sits between them normally, so `order` comes
+// back as a Keyword and `id` as a Name. A quoted run is unquoted only when it is
+// exactly one plain Name token that also looks like a bare identifier —
+// `order`, `weird name` and `2fast` all keep their quotes, and so does anything
+// the lexer typed as something other than a plain Name, such as a data-type
+// word. Backticks inside a string literal are never even seen, since the lexer
+// hands the literal over whole.
+//
+// Only what the detail pane shows is rewritten. Entry.Raw and the log file keep
+// the statement as it was logged, and the statement this works from is the
+// formatter's output, so a wrong call here can never turn into a parse failure.
+// It runs only with [display] unquote-identifiers on.
+func unquoteIdentifiers(sql string) string {
+	it, err := sqlLexer.Tokenise(nil, sql)
+	if err != nil {
+		return sql
+	}
+	var toks []chroma.Token
+	for tok := it(); tok != chroma.EOF; tok = it() {
+		toks = append(toks, tok)
+	}
+	var b strings.Builder
+	b.Grow(len(sql))
+	for i := 0; i < len(toks); i++ {
+		if i+2 < len(toks) && isBacktick(toks[i]) && isBacktick(toks[i+2]) &&
+			toks[i+1].Type == chroma.Name && bareIdentifier.MatchString(toks[i+1].Value) {
+			b.WriteString(toks[i+1].Value)
+			i += 2
+			continue
+		}
+		b.WriteString(toks[i].Value)
+	}
+	return b.String()
+}
+
+func isBacktick(t chroma.Token) bool { return t.Type == chroma.Operator && t.Value == "`" }
+
 // sqlCache maps a statement as logged to the text to show for it. A key held
 // with an empty value is still being formatted — a finished one is never empty,
 // since a failure stores the statement itself — so opening the same statement
@@ -95,15 +148,18 @@ func (m Model) formatSQLCmd(e entry.Entry) tea.Cmd {
 	if m.sql == nil || m.formatSQL == nil {
 		return nil // a Model not built by NewModel; show statements as logged
 	}
+	if !m.display.FormatSQL {
+		return nil // [display] format-sql is off; show statements as logged
+	}
 	var cmds []tea.Cmd
 	for _, stmt := range sqlStatements(e.JSON) {
 		if _, seen := m.sql[stmt]; seen {
 			continue
 		}
 		m.sql[stmt] = "" // in flight
-		format := m.formatSQL
+		format, opts := m.formatSQL, m.sqlOptions()
 		cmds = append(cmds, func() tea.Msg {
-			text, err := format(stmt)
+			text, err := format(stmt, opts)
 			if err != nil || strings.TrimSpace(text) == "" {
 				text = stmt
 			}

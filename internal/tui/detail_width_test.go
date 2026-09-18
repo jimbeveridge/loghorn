@@ -9,6 +9,7 @@ import (
 
 	"github.com/jimbeveridge/loghorn/internal/adapter"
 	"github.com/jimbeveridge/loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/sqlfmt"
 )
 
 // openOn feeds one entry and opens the detail pane on it.
@@ -293,7 +294,7 @@ func TestPaneSizedOnFormattedSQL(t *testing.T) {
 
 	m := NewModel(nil, 100)
 	// Each select item on its own line, the way sqlfmt lays a statement out.
-	m.formatSQL = func(s string) (string, error) {
+	m.formatSQL = func(s string, _ sqlfmt.Options) (string, error) {
 		return strings.NewReplacer(", ", ",\n", " FROM ", "\nFROM ", " WHERE ", "\nWHERE ").Replace(s), nil
 	}
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})

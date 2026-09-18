@@ -102,15 +102,20 @@ accepted by default, alongside the canonical camelCase-and-string schema.
 
 ## Configuration
 
-Settings live in `.config/loghorn/config.toml`. Every key is optional and defaults to
-`auto`, which is why the file is worth creating only when a producer needs something
-unusual.
+Settings live in `.config/loghorn/config.toml`. Every key is optional, and every
+default is the behaviour loghorn has without a file at all, which is why the file is
+worth creating only when a producer needs something unusual.
 
 ```toml
 [input]
 format       = "auto"   # auto | json | yaml | text
 field-naming = "auto"   # auto | camel | snake
 severity     = "auto"   # auto | string | numeric
+
+[display]
+format-sql          = true    # lay SQL out a clause to a line
+unquote-identifiers = false   # drop redundant SQL identifier quoting
+keyword-case        = "preserve"   # preserve | upper | lower
 ```
 
 - **`format`** — how the stream is split into records. `auto` decides from the first
@@ -121,6 +126,27 @@ severity     = "auto"   # auto | string | numeric
   `camel` and `snake` restrict it to one.
 - **`severity`** — `auto` accepts a string name or a numeric code; `string` and
   `numeric` restrict it to one.
+- **`format-sql`** — lays a logged statement out a clause and a select item to a line
+  before the pane shows it. On by default. Turn it off to see statements exactly as they
+  were logged, which for a generated statement means one long line; that also skips the
+  formatter, which costs about 100ms the first time it sees a given statement.
+- **`unquote-identifiers`** — ORMs quote every identifier they generate, so a logged
+  statement arrives as ``select `id`, `user_id` from `grants` `` and reads as more
+  punctuation than SQL. With this on, the detail pane drops the quotes that carry no
+  meaning and shows `select id, user_id from grants`. Quotes that *do* carry meaning
+  stay: a reserved word (`` `order` ``), a name with a space in it, a name starting
+  with a digit. The SQL lexer decides which is which, so there is no keyword list to
+  fall out of date. Only the pane is rewritten — the stored log file and the entry's
+  raw bytes keep the statement exactly as logged — but note that yank copies what the
+  pane shows, so with this on you are copying the unquoted form.
+- **`keyword-case`** — how SQL keywords are cased in the detail pane. `preserve` shows
+  them as the statement wrote them; `upper` gives you `SELECT ... FROM ... WHERE`, which
+  is the usual way to tell keywords from the columns around them, and `lower` the
+  reverse. Only keywords are recased — a quoted identifier and the contents of a string
+  literal are left alone. An unrecognised value is rejected when the file loads rather
+  than passed through, because sql-formatter answers one by silently deleting every
+  keyword from the statement. This is the formatter's own setting, so it does nothing
+  with `format-sql = false`; `unquote-identifiers` still applies either way.
 
 ### Where the file is found
 

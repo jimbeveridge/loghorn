@@ -61,3 +61,61 @@ func TestFormatIsSafeConcurrently(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// KeywordCase cases the keywords and nothing else: a quoted identifier keeps
+// the case it was written in, and so does a string literal's contents.
+func TestFormatWithKeywordCase(t *testing.T) {
+	const q = "select `id`, `order` from `grants` where name = 'select me'"
+	for _, tc := range []struct{ name, kc, want string }{
+		{"upper", "upper", "SELECT"},
+		{"lower", "lower", "select"},
+		{"preserve", "preserve", "select"},
+	} {
+		got, err := FormatWith(q, Options{KeywordCase: tc.kc})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: want %q in:\n%s", tc.name, tc.want, got)
+		}
+		for _, keep := range []string{"`order`", "'select me'"} {
+			if !strings.Contains(got, keep) {
+				t.Errorf("%s: %s should be untouched:\n%s", tc.name, keep, got)
+			}
+		}
+	}
+}
+
+// An unrecognised keywordCase must never reach sql-formatter. It does not reject
+// one — it silently drops every keyword from the output, turning a statement
+// into nonsense — so anything but the three known values formats as "preserve".
+func TestFormatWithUnknownKeywordCaseIsPreserve(t *testing.T) {
+	want, err := Format(oneLine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kc := range []string{"shouty", "", "UPPER", "upper; drop table"} {
+		got, err := FormatWith(oneLine, Options{KeywordCase: kc})
+		if err != nil {
+			t.Fatalf("%q: %v", kc, err)
+		}
+		if got != want {
+			t.Errorf("keywordCase %q should format as preserve:\ngot:  %s\nwant: %s", kc, got, want)
+		}
+	}
+}
+
+// Format is FormatWith's zero-value case, so the two can't drift.
+func TestFormatIsFormatWithZeroOptions(t *testing.T) {
+	a, err := Format(oneLine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FormatWith(oneLine, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Errorf("Format and FormatWith(zero) disagree:\n%s\n%s", a, b)
+	}
+}

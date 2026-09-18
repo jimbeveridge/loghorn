@@ -58,26 +58,71 @@ type Input struct {
 	Severity    SeverityMode `toml:"severity"`
 }
 
+// KeywordCase selects how SQL keywords are cased in the detail pane.
+type KeywordCase string
+
+const (
+	KeywordPreserve KeywordCase = "preserve"
+	KeywordUpper    KeywordCase = "upper"
+	KeywordLower    KeywordCase = "lower"
+)
+
+// Display is the [display] section: how an entry is shown once it has been
+// parsed. Nothing here changes what was read or what is stored.
+type Display struct {
+	// FormatSQL lays a logged SQL statement out a clause to a line before the
+	// detail pane shows it. On by default. Off shows every statement exactly as
+	// it was logged, which is what a one-line generated statement looks like, and
+	// skips the formatter's cost entirely.
+	FormatSQL bool `toml:"format-sql"`
+
+	// UnquoteIdentifiers drops the quoting around a SQL identifier in the
+	// detail pane when the quotes carry no meaning — see tui.unquoteIdentifiers
+	// for which ones qualify. Off by default: it rewrites the statement the pane
+	// shows and yank copies, and a statement that is going to be pasted into a
+	// database client should read as it was logged unless asked otherwise.
+	UnquoteIdentifiers bool `toml:"unquote-identifiers"`
+
+	// KeywordCase cases SQL keywords in the detail pane. "preserve" is the
+	// statement's own casing, which is what loghorn showed before this key
+	// existed. Identifiers and string literals are never recased.
+	KeywordCase KeywordCase `toml:"keyword-case"`
+}
+
 // Config is the whole file. Later sections (saved filters, keybindings) become
 // sibling fields here.
 type Config struct {
-	Input Input `toml:"input"`
+	Input   Input   `toml:"input"`
+	Display Display `toml:"display"`
 }
 
-// Default is the configuration used when no file is found: every key "auto".
+// Default is the configuration used when no file is found: every input key
+// "auto", and every display key the behaviour loghorn had before that key
+// existed. Not every one of those is a zero value — format-sql is on — so
+// anything building a Display must start from here and override, never from an
+// empty struct.
 func Default() Config {
-	return Config{Input: Input{
-		Format:      FormatAuto,
-		FieldNaming: NamingAuto,
-		Severity:    SeverityAuto,
-	}}
+	return Config{
+		Input: Input{
+			Format:      FormatAuto,
+			FieldNaming: NamingAuto,
+			Severity:    SeverityAuto,
+		},
+		Display: Display{
+			FormatSQL:          true,
+			UnquoteIdentifiers: false,
+			KeywordCase:        KeywordPreserve,
+		},
+	}
 }
 
 // String renders the effective settings the way the file would spell them, for
 // -config.
 func (c Config) String() string {
-	return fmt.Sprintf("[input]\nformat       = %q\nfield-naming = %q\nseverity     = %q\n",
-		string(c.Input.Format), string(c.Input.FieldNaming), string(c.Input.Severity))
+	return fmt.Sprintf("[input]\nformat       = %q\nfield-naming = %q\nseverity     = %q\n\n"+
+		"[display]\nformat-sql          = %t\nunquote-identifiers = %t\nkeyword-case        = %q\n",
+		string(c.Input.Format), string(c.Input.FieldNaming), string(c.Input.Severity),
+		c.Display.FormatSQL, c.Display.UnquoteIdentifiers, string(c.Display.KeywordCase))
 }
 
 // Loader resolves the config file. Its fields exist so tests can aim the walk
@@ -213,6 +258,10 @@ func (c Config) validate(path string) error {
 		{"input.format", string(c.Input.Format), []string{"auto", "json", "yaml", "text"}},
 		{"input.field-naming", string(c.Input.FieldNaming), []string{"auto", "camel", "snake"}},
 		{"input.severity", string(c.Input.Severity), []string{"auto", "string", "numeric"}},
+		// Validated here and again in sqlfmt: an unknown keywordCase is not
+		// rejected by the formatter, it silently strips every keyword from the
+		// statement, so a typo must stop at the config file.
+		{"display.keyword-case", string(c.Display.KeywordCase), []string{"preserve", "upper", "lower"}},
 	} {
 		if !slices.Contains(k.allowed, k.got) {
 			return fmt.Errorf("%s: %s = %q is not one of %s",

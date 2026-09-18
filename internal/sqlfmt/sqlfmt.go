@@ -17,6 +17,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing/fstest"
@@ -53,7 +54,19 @@ func compile() {
 // It is slow — around 100ms a statement, plus the one-time compile on first use —
 // so keep it off the UI goroutine. It is safe to call concurrently: each call is
 // its own module instance.
-func Format(sql string) (string, error) {
+func Format(sql string) (string, error) { return FormatWith(sql, Options{}) }
+
+// Options selects the formatter's optional behaviour. The zero value is
+// sql-formatter's own default for every setting.
+type Options struct {
+	// KeywordCase is "upper" or "lower" to case SQL keywords; anything else
+	// leaves each keyword as the statement wrote it. Quoted identifiers and
+	// string literals are never recased whichever value is given.
+	KeywordCase string
+}
+
+// FormatWith is Format with the formatter's options set.
+func FormatWith(sql string, o Options) (string, error) {
 	compileOnce.Do(compile)
 	if compileErr != nil {
 		return "", fmt.Errorf("sqlfmt: compile: %w", compileErr)
@@ -63,7 +76,7 @@ func Format(sql string) (string, error) {
 	// isn't a real file, it prints its usage instead of formatting.
 	fsys := fstest.MapFS{
 		"in.sql":      {Data: []byte(sql)},
-		"config.json": {Data: []byte(config)},
+		"config.json": {Data: []byte(configJSON(o))},
 	}
 	var stdout, stderr bytes.Buffer
 	cfg := wazero.NewModuleConfig().
@@ -100,10 +113,26 @@ func Format(sql string) (string, error) {
 	return out, nil
 }
 
-// config selects the generic SQL dialect — loghorn doesn't know which database
-// wrote a statement — and accepts every common bind-parameter style, which the
-// generic dialect otherwise rejects as a parse error: ?, $1, ?1, :1, :name, @name.
-var config = `{
-  "language": "sql",
-  "paramTypes": {"positional": true, "numbered": ["$", "?", ":"], "named": [":", "@"]}
-}`
+// baseConfig selects the generic SQL dialect — loghorn doesn't know which
+// database wrote a statement — and accepts every common bind-parameter style,
+// which the generic dialect otherwise rejects as a parse error: ?, $1, ?1, :1,
+// :name, @name.
+const baseConfig = `"language": "sql",
+  "paramTypes": {"positional": true, "numbered": ["$", "?", ":"], "named": [":", "@"]}`
+
+// keywordCases are the only values that may reach sql-formatter's keywordCase.
+// The formatter does not reject an unknown one: given "shouty" it returns the
+// statement with every keyword deleted — a select with no SELECT, FROM or WHERE
+// in it — and exits cleanly, so the damage would reach the pane looking like
+// output. Anything not on this list is dropped from the config instead, leaving
+// the formatter's own default.
+var keywordCases = []string{"upper", "lower", "preserve"}
+
+// configJSON renders the config file for one call.
+func configJSON(o Options) string {
+	cfg := baseConfig
+	if slices.Contains(keywordCases, o.KeywordCase) {
+		cfg += fmt.Sprintf(",\n  %q: %q", "keywordCase", o.KeywordCase)
+	}
+	return "{\n  " + cfg + "\n}"
+}

@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"github.com/jimbeveridge/loghorn/internal/config"
 	"github.com/jimbeveridge/loghorn/internal/entry"
+	"github.com/jimbeveridge/loghorn/internal/sqlfmt"
 )
 
 const stmt = "SELECT a, b FROM t WHERE id = $1"
@@ -28,15 +30,18 @@ func sqlEntry(s string) entry.Entry {
 	}
 }
 
-// fakeFormatter stands in for sqlfmt.Format: a clause to a line, instantly, and
-// it counts its calls.
+// fakeFormatter stands in for sqlfmt.FormatWith: a clause to a line, instantly.
+// It counts its calls and keeps the options it was handed, so a test can check
+// what the model asked for without re-testing sqlfmt's own behaviour.
 type fakeFormatter struct {
 	calls int
 	err   error
+	opts  sqlfmt.Options
 }
 
-func (f *fakeFormatter) format(s string) (string, error) {
+func (f *fakeFormatter) format(s string, o sqlfmt.Options) (string, error) {
 	f.calls++
+	f.opts = o
 	if f.err != nil {
 		return "", f.err
 	}
@@ -264,5 +269,127 @@ func TestSQLKeyOutsideStatementIsOrdinary(t *testing.T) {
 	}
 	if got := sqlStatements(v); len(got) != 0 {
 		t.Fatalf("sqlStatements = %q, want none", got)
+	}
+}
+
+// Backticks that carry no meaning come off; the ones holding a statement
+// together stay on. The rule is the lexer's own: a quoted run that lexes to
+// exactly one plain Name token is a bare identifier, and anything else — a
+// reserved word, a name with a space in it, a digit-leading name — keeps its
+// quotes. Backticks inside a string literal are never touched, because the
+// lexer hands the whole literal over as one token.
+func TestUnquoteIdentifiers(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"plain identifiers", "select `id`, `user_id` from `grants`", "select id, user_id from grants"},
+		{"qualified", "where `grants`.`status` = ?", "where grants.status = ?"},
+		{"reserved word kept", "select `order`, `id` from `grants`", "select `order`, id from grants"},
+		{"name with a space kept", "select `weird name` from t", "select `weird name` from t"},
+		{"digit-leading kept", "select `2fast` from t", "select `2fast` from t"},
+		{"inside a string literal", "select 'a `b` c' from `t`", "select 'a `b` c' from t"},
+		{"already bare", "select id from grants", "select id from grants"},
+		{"empty quotes kept", "select `` from t", "select `` from t"},
+		{"newlines preserved", "select\n  `id`,\n  `order`\nfrom\n  `grants`", "select\n  id,\n  `order`\nfrom\n  grants"},
+	} {
+		if got := unquoteIdentifiers(tc.in); got != tc.want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// End to end through the model: with the setting off a statement keeps every
+// backtick it was logged with, and with it on the pane shows the unquoted form.
+// The formatter runs first and the unquoting works on its output, so this also
+// pins that the two steps compose in that order.
+func TestUnquoteIdentifiersSetting(t *testing.T) {
+	const quoted = "select `id` FROM `grants` WHERE `order` = 1"
+	for _, tc := range []struct {
+		name string
+		on   bool
+		want string
+	}{
+		{"off", false, "statement: |-\n    select `id`\n    FROM `grants`\n    WHERE `order` = 1"},
+		{"on", true, "statement: |-\n    select id\n    FROM grants\n    WHERE `order` = 1"},
+	} {
+		d := config.Default().Display
+		d.UnquoteIdentifiers = tc.on
+		m := NewModel(nil, 100)
+		m.SetDisplay(d)
+		m.formatSQL = (&fakeFormatter{}).format
+		m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+		m = feed(m2.(Model), sqlEntry(quoted))
+		m, cmd := toggleDetail(m)
+		m = deliver(t, m, cmd)
+		if got := m.plainDetail(); !strings.Contains(got, tc.want) {
+			t.Errorf("%s: want\n%s\nin\n%s", tc.name, tc.want, got)
+		}
+	}
+}
+
+// The configured keyword case reaches the formatter. What it does with it is
+// sqlfmt's business and is tested there; what matters here is that the setting
+// is read when the format is started, so replacing formatSQL in a test never
+// has to be ordered against SetDisplay.
+func TestKeywordCaseReachesTheFormatter(t *testing.T) {
+	for _, kc := range []config.KeywordCase{config.KeywordPreserve, config.KeywordUpper, config.KeywordLower} {
+		d := config.Default().Display
+		d.KeywordCase = kc
+		f := &fakeFormatter{}
+		m := NewModel(nil, 100)
+		m.SetDisplay(d)
+		m.formatSQL = f.format
+		m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+		m = feed(m2.(Model), sqlEntry(stmt))
+		m, cmd := toggleDetail(m)
+		deliver(t, m, cmd)
+		if f.calls == 0 {
+			t.Fatalf("%s: the formatter was never called", kc)
+		}
+		if f.opts.KeywordCase != string(kc) {
+			t.Errorf("KeywordCase = %q, want %q", f.opts.KeywordCase, kc)
+		}
+	}
+}
+
+// format-sql off shows the statement as logged and never calls the formatter.
+// It is still a literal block and still coloured — that is exactly the state a
+// statement is already in while its format is in flight — so turning the key off
+// changes the layout and nothing else.
+func TestFormatSQLOff(t *testing.T) {
+	f := &fakeFormatter{}
+	d := config.Default().Display
+	d.FormatSQL = false
+	m := NewModel(nil, 100)
+	m.SetDisplay(d)
+	m.formatSQL = f.format
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = feed(m2.(Model), sqlEntry(stmt))
+	m, cmd := toggleDetail(m)
+	if cmd != nil {
+		if msg := cmd(); msg != nil {
+			m2, _ = m.Update(msg)
+			m = m2.(Model)
+		}
+	}
+	if f.calls != 0 {
+		t.Errorf("the formatter was called %d times with format-sql off", f.calls)
+	}
+	if got := m.plainDetail(); !strings.Contains(got, "statement: |-\n    "+stmt) {
+		t.Errorf("the statement should show as logged:\n%s", got)
+	}
+}
+
+// A Model that was never given a Display formats as loghorn always has. This is
+// the trap in a default-true boolean: a zero config.Display would turn SQL
+// formatting off for every caller that didn't ask for it.
+func TestFormatSQLDefaultsOnWithoutSetDisplay(t *testing.T) {
+	f := &fakeFormatter{}
+	m := NewModel(nil, 100)
+	m.formatSQL = f.format
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = feed(m2.(Model), sqlEntry(stmt))
+	m, cmd := toggleDetail(m)
+	deliver(t, m, cmd)
+	if f.calls == 0 {
+		t.Error("a Model with no SetDisplay should still format SQL")
 	}
 }
