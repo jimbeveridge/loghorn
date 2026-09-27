@@ -297,6 +297,17 @@ func waitForEntry(ch <-chan entry.Entry) tea.Cmd {
 	}
 }
 
+// maxBatch caps how many queued entries one update absorbs, so a firehose can't
+// starve key and resize messages of their turn.
+const maxBatch = 4096
+
+// take numbers e and appends it to the ring. It does not rebuild the rows.
+func (m *Model) take(e entry.Entry) {
+	m.ingested++
+	e.Seq = m.ingested
+	m.ring.Append(e)
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -312,10 +323,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case entryMsg:
-		m.ingested++
-		e := entry.Entry(msg)
-		e.Seq = m.ingested
-		m.ring.Append(e)
+		m.take(entry.Entry(msg))
+		// Take whatever is already queued behind it too. rebuild walks the whole
+		// ring, so rebuilding per line makes a replay quadratic; a full channel
+		// (the producer outruns the UI) turns that into one rebuild per batch.
+		// The drain never blocks, so a quiet live stream still updates per line.
+	drain:
+		for i := 0; i < maxBatch; i++ {
+			select {
+			case e, ok := <-m.ch:
+				if !ok {
+					break drain // waitForEntry below reports the close
+				}
+				m.take(e)
+			default:
+				break drain
+			}
+		}
 		return m.rebuild(), waitForEntry(m.ch)
 
 	case doneMsg:
