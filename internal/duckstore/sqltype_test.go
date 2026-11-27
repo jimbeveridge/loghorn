@@ -3,6 +3,7 @@ package duckstore
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -25,6 +26,19 @@ func TestDurationSQLMatchesGo(t *testing.T) {
 		"0.123456789123456789s", "1.00000000000000000001s", "0.0000000005s", "1.9999999999s",
 		"2562047h47m16.854775807s", "2562047h47m16.854775808s", "-2562047h47m16.854775808s", "9999999999h",
 		"0", "-0", "-0s", "3", "2.5", "1e3", " 7ms ", "\t1m30s\n", "5", "1d", "s", "-", "", "inf", "NaN")
+	// Edges of the single-unit fast path: signs, int64 overflow, both
+	// micro signs, and what it must leave to the general path.
+	in = append(in, "+0", "1ns", "-1ns", "+12ms", "9223372036854775807ns", "9223372036854775808ns",
+		"-9223372036854775808ns", "-9223372036854775809ns", "2562047h", "2562048h", "-2562048h", "12µs", "12μs",
+		"1.5s", "1h2m", "12", "ms", "0000000000000000012s", "00000000000000000012s", "9999999999999999999h",
+		"0ns", "-0ns", "+0h", "+-1s", "--1s", "1 s")
+	rnd := rand.New(rand.NewSource(1))
+	units := []string{"ns", "us", "µs", "μs", "ms", "s", "m", "h"}
+	signs := []string{"", "", "-", "+"}
+	for range 50000 {
+		n := rnd.Int63() >> uint(rnd.Intn(63))
+		in = append(in, signs[rnd.Intn(len(signs))]+fmt.Sprint(n)+units[rnd.Intn(len(units))])
+	}
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +48,7 @@ func TestDurationSQLMatchesGo(t *testing.T) {
 	for i, s := range in {
 		rows[i] = "(" + fmt.Sprint(i) + ", " + lit(s) + ")"
 	}
-	q := "SELECT i, " + durationSQL(trimSQL("s")) + " FROM (VALUES " + strings.Join(rows, ",") + ") t(i, s) ORDER BY i"
+	q := "SELECT i, " + durationSQL("s") + " FROM (VALUES " + strings.Join(rows, ",") + ") t(i, s) ORDER BY i"
 	res, err := db.Query(q)
 	if err != nil {
 		t.Fatal(err)

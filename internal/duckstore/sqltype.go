@@ -90,7 +90,7 @@ func conv(c string, from schema.Type, to schema.Field) string {
 		case num:
 			return "(CASE WHEN isfinite(CAST(" + c + " AS DOUBLE)) THEN CAST(" + c + " AS DOUBLE) END)"
 		case from == schema.TString:
-			return durationSQL(trimSQL(c))
+			return durationSQL(c)
 		}
 	case schema.TTimestamp:
 		switch {
@@ -126,8 +126,11 @@ func trimSQL(c string) string { return "trim(" + c + ", " + lit(schema.Space) + 
 // times its unit, plus its fraction as Go adds it (the fraction's first 18
 // or 19 digits, float64(f) * (float64(unit) / scale), truncated); the sum
 // must fit an int64. Past that Go falls back to strconv.ParseFloat, which
-// takes no unit.
-func durationSQL(s string) string {
+// takes no unit. c is the untrimmed string: a value of one integer part
+// (durOne) holds no space, so it is parsed as it stands, and only the
+// rest pay for trimming.
+func durationSQL(c string) string {
+	s := trimSQL(c)
 	unit := "(CASE regexp_extract(x, '[a-zµμ]+$') WHEN 'ns' THEN 1 WHEN 'us' THEN 1000 WHEN 'µs' THEN 1000 WHEN 'μs' THEN 1000" +
 		" WHEN 'ms' THEN 1000000 WHEN 's' THEN 1000000000 WHEN 'm' THEN 60000000000 WHEN 'h' THEN 3600000000000 END)"
 	whole := "ltrim(regexp_extract(x, '^[0-9]*'), '0')"
@@ -142,9 +145,30 @@ func durationSQL(s string) string {
 	dur := "list_transform([" + parts + "], lambda p: list_transform([list_sum(p)], lambda d:" +
 		" CASE WHEN len(list_filter(p, lambda v: v IS NULL)) = 0 AND d <= " + limit +
 		" THEN (CASE WHEN starts_with(" + s + ", '-') THEN CAST(0 AS DOUBLE) - " + secs + " ELSE " + secs + " END) END)[1])[1]"
-	return "(CASE WHEN " + s + " IN ('0', '+0', '-0') THEN CAST(0 AS DOUBLE)" +
+	return "(CASE WHEN regexp_full_match(" + c + ", " + lit(durOne) + ") THEN " + durOneSQL(c) +
+		" WHEN " + s + " IN ('0', '+0', '-0') THEN CAST(0 AS DOUBLE)" +
 		" WHEN regexp_full_match(" + s + ", " + lit(`[-+]?(`+durPart+`)+`) + ") THEN " + dur +
 		" WHEN isfinite(TRY_CAST(" + s + " AS DOUBLE)) THEN TRY_CAST(" + s + " AS DOUBLE) END)"
+}
+
+// durOne is a duration of one integer part, the common case, which
+// durOneSQL parses without the general path's lists and lambdas. 19
+// digits always fit a HUGEINT times the largest unit; longer strings take
+// the general path.
+const durOne = `[-+]?[0-9]{1,19}(ns|us|µs|μs|ms|s|m|h)`
+
+// durOneSQL is durationSQL's answer for s matching durOne: the digits
+// times the unit, NULL past the general path's limit (int64 overflow, as
+// Go refuses), then the general path's seconds, negated for a leading '-'.
+func durOneSQL(s string) string {
+	limit := "(CASE WHEN starts_with(" + s + ", '-') THEN CAST(9223372036854775808 AS HUGEINT) ELSE CAST(9223372036854775807 AS HUGEINT) END)"
+	unit := "(CASE right(" + s + ", 2) WHEN 'ns' THEN 1 WHEN 'us' THEN 1000 WHEN 'µs' THEN 1000 WHEN 'μs' THEN 1000" +
+		" WHEN 'ms' THEN 1000000 ELSE (CASE right(" + s + ", 1) WHEN 's' THEN 1000000000 WHEN 'm' THEN 60000000000" +
+		" WHEN 'h' THEN 3600000000000 END) END)"
+	d := "(CAST(ltrim(rtrim(" + s + ", 'nsuµμmh'), '+-') AS HUGEINT) * " + unit + ")"
+	secs := "(CAST(" + d + " // 1000000000 AS DOUBLE) + CAST(" + d + " % 1000000000 AS DOUBLE) / CAST(1e9 AS DOUBLE))"
+	return "(CASE WHEN " + d + " <= " + limit + " THEN (CASE WHEN starts_with(" + s + ", '-') THEN CAST(0 AS DOUBLE) - " +
+		secs + " ELSE " + secs + " END) END)"
 }
 
 // epochIntSQL is schema's epoch() for an integer in unit (default ms).
