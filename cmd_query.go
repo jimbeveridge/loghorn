@@ -17,6 +17,7 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/export"
 	"github.com/jimbeveridge/loghorn/internal/query"
 	"github.com/jimbeveridge/loghorn/internal/sock"
+	"github.com/jimbeveridge/loghorn/internal/web"
 )
 
 const queryUsage = `Usage: loghorn query [flags] <url | @file | @->
@@ -29,7 +30,7 @@ for the running serve, or @file / @- to read it from a file or stdin.
 
 With -sql, run one read-only DuckDB query over the running serve's records
 and print its rows (TSV by default; -format csv, md, json or jsonl). At most
-1000 rows are printed unless -limit says more, and
+1000 rows are printed unless -limit says more (at most 100000), and
 a note on stderr says when rows were cut.
 
 Tables: logs."<stream>" for log records, spans."<stream>" for spans, and
@@ -38,8 +39,10 @@ logs."*" / spans."*" for every stream at once. Each has seq (store order),
 then one typed column per field, named by its path. Quote dotted names and
 keywords:
 "http.route", "loghorn.run.id", "time". Streams have different fields; list
-every table with its columns, ready to paste:
+every table with its columns, ready to paste, or one table's columns
+(SHOW TABLES lists internal tables that -sql cannot read):
   loghorn query -sql 'SELECT * FROM loghorn.tables'
+  loghorn query -sql 'DESCRIBE logs."<stream>"'
 Records from 'loghorn run' carry their run in "loghorn.run.id";
 loghorn.this_run_id() is the latest run and loghorn.this_run_start() the
 time of its first record:
@@ -276,6 +279,8 @@ func runSQL(o opts, env queryEnv) int {
 		return usage("-to-sql prints a URL's SQL; it can't be combined with -sql")
 	case o.limitSet && o.limit < 1:
 		return usage("-limit must be at least 1")
+	case o.limitSet && o.limit > web.MaxSQLLimit:
+		return usage("-limit must be at most %d", web.MaxSQLLimit)
 	}
 	text, err := readURLArg(o.sql, env.stdin)
 	if err != nil {

@@ -83,9 +83,12 @@ func TestToSQLOverModel(t *testing.T) {
 	}
 }
 
-// modelRun runs sql on one connection in UTC, with now() fixed at duckNow,
-// and gives its rows as DuckDB's JSON output would: numbers as json.Number,
-// times as "2006-01-02 15:04:05-07" in UTC.
+// modelRun runs sql on one connection, with now() fixed at duckNow, and
+// gives its rows as DuckDB's JSON output would: numbers as json.Number,
+// times as "2006-01-02 15:04:05-07" in UTC. The engine's configuration is
+// locked, so the session keeps the machine's TimeZone: ToSQL names every
+// zone it uses, so the answer is the same in any (checked under
+// TZ=Asia/Kolkata and TZ=America/Los_Angeles).
 func modelRun(t *testing.T, e *duckstore.Engine, sql string) []map[string]any {
 	t.Helper()
 	ctx := context.Background()
@@ -94,9 +97,6 @@ func modelRun(t *testing.T, e *duckstore.Engine, sql string) []map[string]any {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "SET TimeZone='UTC'"); err != nil {
-		t.Fatal(err)
-	}
 	now, _ := timestampLit(duckNow)
 	rs, err := conn.QueryContext(ctx, strings.ReplaceAll(sql, "now()", now))
 	if err != nil {

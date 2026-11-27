@@ -16,6 +16,10 @@ import (
 // no limit.
 const DefaultSQLLimit = 1000
 
+// MaxSQLLimit is the most rows a SQL answer may ask for: serve holds every
+// row, and the encoded answer, in memory outside DuckDB's memory limit.
+const MaxSQLLimit = 100000
+
 type sqlRequest struct {
 	SQL    string `json:"sql"`
 	Format string `json:"format"`
@@ -51,6 +55,9 @@ func (s *server) sql(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case req.Limit < 0:
 		writeError(w, http.StatusBadRequest, "limit must be at least 1")
+		return
+	case req.Limit > MaxSQLLimit:
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("limit must be at most %d", MaxSQLLimit))
 		return
 	case req.Limit == 0:
 		req.Limit = DefaultSQLLimit

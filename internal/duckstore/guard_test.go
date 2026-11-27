@@ -124,3 +124,31 @@ func TestReadOnlyQueryCannotWrite(t *testing.T) {
 		t.Fatalf("records after the refused DELETE: %v", n)
 	}
 }
+
+// TestGuardCTEScope: a WITH name stands for its CTE only inside the query
+// that defines it, so it cannot unlock an internal table elsewhere.
+func TestGuardCTEScope(t *testing.T) {
+	g := newRig(t)
+	for _, q := range []string{
+		`SELECT * FROM (WITH records AS (SELECT 1) SELECT 1), records`,
+		`SELECT (WITH records AS (SELECT 1) SELECT 1), (SELECT count(*) FROM records)`,
+		`WITH records AS (SELECT * FROM records) SELECT * FROM records`,
+		`WITH a AS (SELECT * FROM b), b AS (SELECT 1) SELECT * FROM a`,
+		`WITH RECURSIVE records AS (SELECT * FROM records UNION ALL SELECT * FROM records) SELECT 1`,
+	} {
+		if err := CheckReadOnly(context.Background(), g.e.DB(), q); err == nil {
+			t.Errorf("allowed: %s", q)
+		}
+	}
+	for _, q := range []string{
+		`WITH a AS (SELECT 1) SELECT * FROM a`,
+		`WITH a AS (SELECT 1) SELECT * FROM (SELECT * FROM a)`,
+		`WITH a AS (SELECT 1), b AS (SELECT * FROM a) SELECT * FROM b`,
+		`WITH a AS (SELECT 1) SELECT (SELECT count(*) FROM a), * FROM a WHERE 1 IN (FROM a)`,
+		`WITH RECURSIVE r AS (SELECT 1 x UNION ALL SELECT x+1 FROM r WHERE x < 3) SELECT * FROM r`,
+	} {
+		if err := CheckReadOnly(context.Background(), g.e.DB(), q); err != nil {
+			t.Errorf("%s: refused: %v", q, err)
+		}
+	}
+}

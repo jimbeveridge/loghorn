@@ -140,7 +140,9 @@ func (e *Engine) harden() error {
 	stmts = append(stmts,
 		"SET allowed_directories = ["+lit(dir)+"]",
 		"SET temp_directory = "+lit(tmp))
-	stmts = append(stmts, "SET enable_external_access = false")
+	// Last: once the configuration is locked, no SQL can undo the above.
+	// Nothing may SET anything after this (open's memory_limit runs first).
+	stmts = append(stmts, "SET enable_external_access = false", "SET lock_configuration = true")
 	for _, st := range stmts {
 		if err := e.exec(st); err != nil {
 			return fmt.Errorf("duckdb: %s: %w", st, err)

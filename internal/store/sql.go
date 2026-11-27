@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jimbeveridge/loghorn/internal/duckstore"
@@ -22,15 +24,22 @@ type SQLResult struct {
 	Truncated bool
 }
 
-// SQLTimeout bounds one SQL query.
-const SQLTimeout = 30 * time.Second
+// SQLTimeout bounds one SQL query. The query holds the store's read lock,
+// so this is also how long it can keep an archive, and every reader queued
+// behind that archive, waiting.
+const SQLTimeout = 10 * time.Second
+
+// errTrailingText is the answer to a query the row cap cannot wrap.
+var errTrailingText = errors.New("the query must be one SELECT; remove trailing text after it")
 
 // SQL runs a read-only query over the table model of query.SQLHeader:
 // logs."<stream>", spans."<stream>" and "*" of each, built from the stored
 // records and the schema inferred now, and the loghorn.this_run_* macros
 // for the latest run. Anything but one query over those tables is refused.
-// At most max rows are read.
+// At most max rows are read: the row cap is part of the query, and a query
+// it cannot wrap is refused.
 func (s *Store) SQL(ctx context.Context, q string, max int) (SQLResult, error) {
+	q = strings.TrimRight(q, "; \t\r\n\f\v")
 	tables, err := s.modelTables()
 	if err != nil {
 		return SQLResult{}, err
@@ -49,11 +58,12 @@ func (s *Store) SQL(ctx context.Context, q string, max int) (SQLResult, error) {
 				return err
 			}
 			// DuckDB builds the whole answer before the first row is read,
-			// so the row cap goes into the query; text the wrapper cannot
-			// hold (a trailing ;) runs as it is.
-			run := q
-			if w := "SELECT * FROM (\n" + q + "\n) LIMIT " + strconv.Itoa(max+1); duckstore.CheckReadOnly(ctx, conn, w) == nil {
-				run = w
+			// so the row cap goes into the query. Text the wrapper cannot
+			// hold (such as a comment after a ;) is refused, never run
+			// without the cap.
+			run := "SELECT * FROM (\n" + q + "\n) LIMIT " + strconv.Itoa(max+1)
+			if duckstore.CheckReadOnly(ctx, conn, run) != nil {
+				return errTrailingText
 			}
 			rows, err := conn.QueryContext(ctx, run)
 			if err != nil {

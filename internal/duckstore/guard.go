@@ -68,55 +68,22 @@ func CheckReadOnly(ctx context.Context, db querier, q string) error {
 	if err := json.Unmarshal(tree.Statements[0], &node); err != nil {
 		return err
 	}
-	ctes := map[string]bool{}
-	if err := collectCTEs(node, ctes); err != nil {
-		return err
-	}
-	return checkRefs(node, ctes)
+	return checkRefs(node, nil)
 }
 
-// collectCTEs adds the name of every common table expression in x; a name
-// that is not plain is refused.
-func collectCTEs(x any, ctes map[string]bool) error {
-	switch v := x.(type) {
-	case map[string]any:
-		if m, ok := v["cte_map"].(map[string]any); ok {
-			if list, ok := m["map"].([]any); ok {
-				for _, e := range list {
-					if e, ok := e.(map[string]any); ok {
-						if k, ok := e["key"].(string); ok {
-							if !plainName.MatchString(k) {
-								return fmt.Errorf("WITH name %q is not allowed: use a plain name (letters, digits, _)", k)
-							}
-							ctes[strings.ToLower(k)] = true
-						}
-					}
-				}
-			}
-		}
-		for _, c := range v {
-			if err := collectCTEs(c, ctes); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for _, c := range v {
-			if err := collectCTEs(c, ctes); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// checkRefs refuses a table function or table q may not read.
+// checkRefs refuses a table function or table q may not read. ctes are the
+// WITH names in scope at x: a name stands for its CTE only inside the query
+// node whose WITH defines it (and that node's children), and within the WITH
+// clause only in the CTEs after it, so a WITH name can never unlock a table
+// elsewhere in the query.
 func checkRefs(x any, ctes map[string]bool) error {
 	switch v := x.(type) {
 	case map[string]any:
-		if typ, _ := v["type"].(string); strings.HasSuffix(typ, "_NODE") && !queryNodes[typ] {
+		typ, _ := v["type"].(string)
+		if strings.HasSuffix(typ, "_NODE") && !queryNodes[typ] {
 			return fmt.Errorf("%s is not allowed: -sql only reads", strings.TrimSuffix(strings.TrimSuffix(typ, "_NODE"), "_QUERY"))
 		}
-		switch v["type"] {
+		switch typ {
 		case "TABLE_FUNCTION":
 			f, _ := v["function"].(map[string]any)
 			name, _ := f["function_name"].(string)
@@ -141,8 +108,40 @@ func checkRefs(x any, ctes map[string]bool) error {
 				}
 				return fmt.Errorf("table %q is not allowed: read logs.\"<stream>\" or spans.\"<stream>\" (SELECT * FROM loghorn.tables lists them)", name)
 			}
+		case "RECURSIVE_CTE_NODE":
+			// The recursive part reads the CTE itself; the anchor (left)
+			// does not.
+			name, _ := v["cte_name"].(string)
+			inner := withName(ctes, name)
+			for k, c := range v {
+				scope := inner
+				if k == "left" {
+					scope = ctes
+				}
+				if err := checkRefs(c, scope); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
-		for _, c := range v {
+		if m, ok := v["cte_map"].(map[string]any); ok {
+			list, _ := m["map"].([]any)
+			for _, e := range list {
+				e, _ := e.(map[string]any)
+				k, _ := e["key"].(string)
+				if !plainName.MatchString(k) {
+					return fmt.Errorf("WITH name %q is not allowed: use a plain name (letters, digits, _)", k)
+				}
+				if err := checkRefs(e["value"], ctes); err != nil {
+					return err
+				}
+				ctes = withName(ctes, k)
+			}
+		}
+		for k, c := range v {
+			if k == "cte_map" {
+				continue
+			}
 			if err := checkRefs(c, ctes); err != nil {
 				return err
 			}
@@ -155,4 +154,14 @@ func checkRefs(x any, ctes map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+// withName is ctes and name, leaving ctes as it was.
+func withName(ctes map[string]bool, name string) map[string]bool {
+	out := make(map[string]bool, len(ctes)+1)
+	for k := range ctes {
+		out[k] = true
+	}
+	out[strings.ToLower(name)] = true
+	return out
 }

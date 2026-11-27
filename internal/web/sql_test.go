@@ -116,3 +116,14 @@ func TestSQLRefusedOverTCP(t *testing.T) {
 		t.Fatalf("%d %s", resp.StatusCode, b)
 	}
 }
+
+func TestSQLLimitAboveMax(t *testing.T) {
+	c, _ := sqlServer(t, 1)
+	resp, got := postSQL(t, c, "http://loghorn/api/sql", `{"sql":"SELECT 1","limit":100001}`)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(got, "limit must be at most 100000") {
+		t.Fatalf("%d %s", resp.StatusCode, got)
+	}
+	if resp, got := postSQL(t, c, "http://loghorn/api/sql", `{"sql":"SELECT 1","limit":100000}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("limit at the max: %d %s", resp.StatusCode, got)
+	}
+}

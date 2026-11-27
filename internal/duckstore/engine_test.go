@@ -459,3 +459,15 @@ func TestRowRetryStopsOnSameError(t *testing.T) {
 		e.Close()
 	}
 }
+
+// TestConfigLockedAfterHarden: once hardened, no SQL can change DuckDB's
+// configuration, even through a connection the guard never saw.
+func TestConfigLockedAfterHarden(t *testing.T) {
+	g := newRig(t)
+	if _, err := g.e.DB().Exec(`SET memory_limit='2GB'`); err == nil {
+		t.Fatal("SET memory_limit succeeded")
+	}
+	if _, err := g.e.DB().Exec(`SET enable_external_access = true`); err == nil {
+		t.Fatal("SET enable_external_access succeeded")
+	}
+}

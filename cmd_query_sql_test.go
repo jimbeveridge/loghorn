@@ -108,3 +108,10 @@ func TestQueryUsageTeachesSQL(t *testing.T) {
 		t.Error(`help still starts from logs."app", which may not exist`)
 	}
 }
+
+func TestQuerySQLLimitAboveMax(t *testing.T) {
+	r := runCLI(t, opts{sql: `SELECT 1`, limit: 100001, limitSet: true}, nil, "")
+	if r.code != 2 || !strings.Contains(r.stderr, "limit must be at most 100000") {
+		t.Fatalf("exit %d; stderr %q", r.code, r.stderr)
+	}
+}

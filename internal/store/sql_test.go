@@ -143,7 +143,7 @@ func TestStoreSQLRoundsFloats(t *testing.T) {
 
 func TestStoreSQLLimitKeepsOrder(t *testing.T) {
 	s := sqlStore(t, 6)
-	res := sqlRows(t, s, "SELECT seq FROM logs.\"app\" ORDER BY seq DESC;  -- newest first\n", 2)
+	res := sqlRows(t, s, "SELECT seq FROM logs.\"app\" ORDER BY seq DESC  -- newest first\n", 2)
 	if len(res.Rows) != 2 || !res.Truncated || res.Rows[0][0].(int64) < res.Rows[1][0].(int64) {
 		t.Fatalf("rows %v truncated %v", res.Rows, res.Truncated)
 	}
@@ -195,5 +195,47 @@ func TestStoreSQLCapStopsTheQuery(t *testing.T) {
 	res, err := s.SQL(ctx, `SELECT range AS n FROM range(10000000000)`, 3)
 	if err != nil || len(res.Rows) != 3 || !res.Truncated {
 		t.Fatalf("%v rows, truncated %v, err %v", len(res.Rows), res.Truncated, err)
+	}
+}
+
+// TestSQLTrailingSemicolonKeepsCap: a trailing ; (and space) is stripped
+// before the row cap wraps the query, so the cap still holds: DuckDB stops
+// after max+1 rows instead of building ten billion.
+func TestSQLTrailingSemicolonKeepsCap(t *testing.T) {
+	s := sqlStore(t, 1)
+	for _, q := range []string{
+		`SELECT range FROM range(10000000000);`,
+		"SELECT range FROM range(10000000000) ;; \n\t",
+		"SELECT range FROM range(10000000000) -- a comment",
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		res, err := s.SQL(ctx, q, 10)
+		cancel()
+		if err != nil || len(res.Rows) != 10 || !res.Truncated {
+			t.Errorf("%q: %d rows, truncated %v, err %v", q, len(res.Rows), res.Truncated, err)
+		}
+	}
+}
+
+// TestSQLTrailingTextRefused: text the row cap cannot wrap is refused, never
+// run as it is.
+func TestSQLTrailingTextRefused(t *testing.T) {
+	s := sqlStore(t, 1)
+	for _, q := range []string{
+		`SELECT 1; SELECT 2`,
+		`SELECT range FROM range(1000000); -- trailing`,
+		`SELECT range FROM range(1000000) /*`,
+	} {
+		if res, err := s.SQL(context.Background(), q, 10); err == nil {
+			t.Errorf("%q: answered %d rows", q, len(res.Rows))
+		}
+	}
+	_, err := s.SQL(context.Background(), `SELECT range FROM range(1000000); -- trailing`, 10)
+	if err == nil || err.Error() != "the query must be one SELECT; remove trailing text after it" {
+		t.Errorf("error %v", err)
+	}
+	// What the guard allows still runs inside the wrapper.
+	for _, q := range []string{`DESCRIBE logs."app"`, `SHOW ALL TABLES`, `SUMMARIZE logs."app"`, `FROM logs."app"`} {
+		sqlRows(t, s, q, 10)
 	}
 }
