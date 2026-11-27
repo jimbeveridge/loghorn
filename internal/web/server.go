@@ -248,15 +248,21 @@ type sessionJSON struct {
 	DataDir    string     `json:"dataDir"`
 	Socket     string     `json:"socket"`
 	OTLPPort   int        `json:"otlpPort"`
+	// Error is why the counts are missing (zero): the store couldn't be
+	// read.
+	Error string `json:"error,omitempty"`
 }
 
+// session answers 200 with serve's identity even when the store can't be
+// read (counts zero, the reason in error): sock.Probe finds serve here.
 func (s *server) session(w http.ResponseWriter, r *http.Request) {
 	in, err := s.o.Store.Info()
+	msg := ""
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		msg = err.Error()
+		in = store.Info{Mode: in.Mode, RunStart: in.RunStart}
 	}
-	writeJSON(w, http.StatusOK, sessionJSON{
+	writeJSON(w, http.StatusOK, sessionJSON{Error: msg,
 		Mode: in.Mode, RunStart: timePtr(in.RunStart), Earliest: timePtr(in.Earliest),
 		Latest: timePtr(in.Latest), Count: in.Count, ConfigBase: s.o.ConfigBase,
 		PID: s.o.PID, Cwd: s.o.Cwd, Port: s.o.Port, Started: s.o.Started,

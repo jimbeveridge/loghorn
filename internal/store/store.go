@@ -59,9 +59,13 @@ type Store struct {
 	runStart time.Time
 	now      func() time.Time         // the arrival clock for live ids
 	waitFor  func(time.Duration) bool // the engine's Sync; tests replace it
+	maxSeq   func(int) (int, error)   // the engine's MaxSeq; tests replace it
+	warn     func(string)             // the engine's Warn; tests replace it
 
 	mu       sync.Mutex
 	seq      map[int]int     // per day number: the last sequence used
+	seqRead  map[int]bool    // days whose stored sequences were read
+	seqWarn  bool            // a failed read of stored sequences was warned about
 	last     time.Time       // the previous record's time
 	pending  []record.Record // leading records written with no time yet
 	fallback string          // service of records that name none
@@ -94,7 +98,8 @@ func NewWithInput(mode Mode, runStart time.Time, in config.Input) *Store {
 }
 
 func wrap(e *duckstore.Engine, mode Mode, runStart time.Time) *Store {
-	return &Store{e: e, mode: mode, runStart: runStart, now: time.Now, waitFor: e.Sync, seq: map[int]int{},
+	return &Store{e: e, mode: mode, runStart: runStart, now: time.Now, waitFor: e.Sync, maxSeq: e.MaxSeq, warn: e.Warn,
+		seq: map[int]int{}, seqRead: map[int]bool{},
 		fallback: record.DefaultService, cache: map[[3]string]cached{}}
 }
 
@@ -146,10 +151,8 @@ func (s *Store) add(r record.Record, received time.Time, day int, wait bool) {
 		day = max(DayNumber(s.now()), s.liveDay) // never back: the clock can step
 		s.liveDay = day
 	}
-	if _, ok := s.seq[day]; !ok {
-		// A day first seen here may hold ids from an earlier run (a clock
-		// that was ahead): continue after them.
-		s.seq[day] = s.e.MaxSeq(day)
+	if !s.seqRead[day] {
+		s.readSeq(day)
 	}
 	s.seq[day]++
 	r.Seq = day<<32 + s.seq[day]
@@ -170,12 +173,35 @@ func (s *Store) add(r record.Record, received time.Time, day int, wait bool) {
 		put(r)
 		return
 	}
+	if !duckstore.TimeFits(r.Time) {
+		// Stored with no time (_raw keeps it): it times neither the
+		// records waiting for one nor the untimed ones after it.
+		put(r)
+		return
+	}
 	if len(s.pending) > 0 {
 		s.e.SetTime(s.pending, r.Time)
 		s.pending = nil
 	}
 	s.last = r.Time
 	put(r)
+}
+
+// readSeq continues day's ids after the ones stored for it: a day first
+// seen here may hold ids from an earlier run (a clock that was ahead). When
+// they can't be read, the day's ids continue after the highest given out
+// this session, and the next record asks again. Caller holds s.mu.
+func (s *Store) readSeq(day int) {
+	m, err := s.maxSeq(day)
+	if err != nil {
+		if !s.seqWarn {
+			s.seqWarn = true
+			s.warn("loghorn: DuckDB: reading the stored record ids failed (" + firstLine(err) + "); numbering after this run's")
+		}
+		return
+	}
+	s.seq[day] = max(s.seq[day], m)
+	s.seqRead[day] = true
 }
 
 // Flush waits until everything added is written.

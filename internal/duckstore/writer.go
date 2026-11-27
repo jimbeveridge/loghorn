@@ -34,28 +34,42 @@ func (e *Engine) write(batch []record.Record) {
 			}
 		}
 		if err != nil {
-			e.writeRows(p, batch)
+			e.writeRows(p, batch, err)
 		}
 	}
 	e.ownerOnly()
 	e.version.Add(1)
 }
 
-// writeRows stores batch one record at a time, skipping and counting the
-// records p refuses.
-func (e *Engine) writeRows(p *part, batch []record.Record) {
+// writeRows stores batch one record at a time, skipping the records p
+// refuses. batchErr is why the whole batch failed: when the first record
+// alone fails with that same error, the fault isn't in the data (DuckDB
+// itself is failing), so the rest isn't tried. Those records are counted as
+// skipped, leaving the files to be imported again from text; a record
+// refused for its own data is not, or every start would import it again.
+// Each distinct error is warned about once.
+func (e *Engine) writeRows(p *part, batch []record.Record, batchErr error) {
 	skipped := 0
 	var first error
-	for _, r := range batch {
-		if err := e.writeTx(p, []record.Record{r}); err != nil {
-			skipped++
-			if first == nil {
-				first = err
-			}
+	for i, r := range batch {
+		err := e.writeTx(p, []record.Record{r})
+		if err == nil {
+			continue
+		}
+		if i == 0 && err.Error() == batchErr.Error() {
+			e.mu.Lock()
+			e.skipped += len(batch)
+			e.mu.Unlock()
+			e.warnKeyed("skip:"+firstLine(err), fmt.Sprintf("loghorn: DuckDB skipped %d record(s): it could not store them (%v); the text log keeps them", len(batch), firstLine(err)))
+			return
+		}
+		skipped++
+		if first == nil {
+			first = err
 		}
 	}
 	if skipped > 0 {
-		e.warn(fmt.Sprintf("loghorn: DuckDB skipped %d record(s) it could not store (%v); the text log keeps them", skipped, firstLine(first)))
+		e.warnKeyed("skip:"+firstLine(first), fmt.Sprintf("loghorn: DuckDB skipped %d record(s) it could not store (%v); the text log keeps them", skipped, firstLine(first)))
 	}
 }
 
@@ -102,6 +116,11 @@ func (e *Engine) warnOnce(msg string) {
 	if len(key) > 60 {
 		key = key[:60]
 	}
+	e.warnKeyed(key, msg)
+}
+
+// warnKeyed warns msg unless a warning with key was already given.
+func (e *Engine) warnKeyed(key, msg string) {
 	if e.warned[key] {
 		return
 	}
@@ -140,10 +159,16 @@ var (
 	maxTime = time.Unix(0, math.MaxInt64).UTC()
 )
 
+// TimeFits reports whether t is a real time _time can hold. A record whose
+// time doesn't fit is stored with a NULL _time.
+func TimeFits(t time.Time) bool {
+	return !t.IsZero() && !t.Before(minTime) && !t.After(maxTime)
+}
+
 // row is a record's values in column order.
 func row(r record.Record) []driver.Value {
 	var tm any
-	if !r.Time.IsZero() && !r.Time.Before(minTime) && !r.Time.After(maxTime) {
+	if TimeFits(r.Time) {
 		tm = r.Time.UTC()
 	}
 	src := r.Key().Source

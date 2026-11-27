@@ -66,13 +66,13 @@ func TestArchiveMovesClosedDays(t *testing.T) {
 			t.Errorf("record %d: got %+v, want %+v", i, got[i], in[i])
 		}
 	}
-	if e.MaxSeq(archDay-1) != 2 {
-		t.Errorf("MaxSeq of the archived day = %d", e.MaxSeq(archDay-1))
+	if maxSeq(t, e, archDay-1) != 2 {
+		t.Errorf("MaxSeq of the archived day = %d", maxSeq(t, e, archDay-1))
 	}
 	// Reopening reads the archives again.
 	e.Close()
 	e = openFiles(t, dir, nil)
-	if n := e.Count(); n != 3 {
+	if n := count(t, e); n != 3 {
 		t.Errorf("after reopen: %d records", n)
 	}
 }
@@ -103,8 +103,8 @@ func TestFailedArchiveKeepsHotRows(t *testing.T) {
 	if err := e.Archive(archDay); err != nil {
 		t.Fatal(err)
 	}
-	if n := hotCount(t, e); n != 1 || e.Count() != 3 {
-		t.Errorf("retry: hot %d, total %d", n, e.Count())
+	if n := hotCount(t, e); n != 1 || count(t, e) != 3 {
+		t.Errorf("retry: hot %d, total %d", n, count(t, e))
 	}
 }
 
@@ -123,7 +123,7 @@ func TestArchiveExpiresOldDays(t *testing.T) {
 	if _, err := os.Stat(archivePath(dir, archDay)); err != nil {
 		t.Errorf("kept day's archive: %v", err)
 	}
-	if n := e.Count(); n != 1 {
+	if n := count(t, e); n != 1 {
 		t.Errorf("records = %d, want 1", n)
 	}
 	var n int
@@ -177,8 +177,8 @@ func TestArchiveAtMidnight(t *testing.T) {
 	if _, err := os.Stat(archivePath(dir, archDay)); err != nil {
 		t.Errorf("no archive after midnight: %v", err)
 	}
-	if n := hotCount(t, e); n != 1 || e.Count() != 2 {
-		t.Errorf("hot %d, total %d", n, e.Count())
+	if n := hotCount(t, e); n != 1 || count(t, e) != 2 {
+		t.Errorf("hot %d, total %d", n, count(t, e))
 	}
 }
 
@@ -192,13 +192,13 @@ func TestArchiveMergesRowsLeftHot(t *testing.T) {
 	e.Archive(archDay)
 	addSync(t, e, withSeq(logRec(t, "s", "api", ``), (archDay-1)<<32+3)) // late
 	// Before archiving again, the view must not double count anything.
-	if n := e.Count(); n != 4 {
+	if n := count(t, e); n != 4 {
 		t.Errorf("before: %d records, want 4", n)
 	}
 	if err := e.Archive(archDay); err != nil {
 		t.Fatal(err)
 	}
-	if n := e.Count(); n != 4 || hotCount(t, e) != 1 {
+	if n := count(t, e); n != 4 || hotCount(t, e) != 1 {
 		t.Errorf("after: %d records (want 4), hot %d", n, hotCount(t, e))
 	}
 }
@@ -237,7 +237,7 @@ func TestUnknownHotDaysCountNothingTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := e.Count(); n != 3 {
+	if n := count(t, e); n != 3 {
 		t.Errorf("%d records, want 3", n)
 	}
 }

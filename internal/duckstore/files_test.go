@@ -75,7 +75,7 @@ func TestFilesPersistAcrossReopen(t *testing.T) {
 	if len(recs) != 2 || recs[0].Seq != day<<32+1 || recs[1].Seq != day<<32+2 || recs[1].Source != record.SourceOtel {
 		t.Fatalf("records after reopen: %+v", recs)
 	}
-	if got := e.MaxSeq(day); got != 2 {
+	if got := maxSeq(t, e, day); got != 2 {
 		t.Errorf("MaxSeq = %d, want 2", got)
 	}
 	tl, err := e.Tallies(record.SourceLog, "s", "api")
@@ -227,4 +227,22 @@ func TestImportedMark(t *testing.T) {
 	if marked(dir) {
 		t.Error("files whose write failed were marked complete")
 	}
+}
+
+func count(t *testing.T, e *Engine) int {
+	t.Helper()
+	n, err := e.Count()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func maxSeq(t *testing.T, e *Engine, day int) int {
+	t.Helper()
+	n, err := e.MaxSeq(day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

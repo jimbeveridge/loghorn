@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +69,13 @@ func openWriter(o Options, today int) (*Store, error) {
 		return nil, err
 	}
 	if !imported {
-		if e.Count() > 0 || archived(o.Dir) {
+		n, err := e.Count()
+		if err != nil {
+			// Never import on top of records it couldn't count.
+			e.Close()
+			return nil, fmt.Errorf("counting the stored records: %w", err)
+		}
+		if n > 0 || archived(o.Dir) {
 			// Whatever is there came from text, which still has it.
 			e.Close()
 			clearFiles(o.Dir)
@@ -85,11 +92,11 @@ func openWriter(o Options, today int) (*Store, error) {
 			o.Warn(fmt.Sprintf("loghorn: imported %d records from the text logs into DuckDB", n))
 		}
 		e.Archive(today)
-		return s.ready(today), nil
+		return s.ready(today)
 	}
 	e.MarkComplete()
 	e.Archive(today) // failures are warned about and retried next time
-	return newStore(e, o).ready(today), nil
+	return newStore(e, o).ready(today)
 }
 
 func archived(dir string) bool {
@@ -105,19 +112,27 @@ func clearFiles(dir string) {
 	os.RemoveAll(filepath.Join(dir, duckstore.ArchiveDir))
 }
 
-// ready continues today's ids after the stored ones.
-func (s *Store) ready(today int) *Store {
+// ready continues today's ids after the stored ones. A failed read fails
+// the open (closing the store): ids are never given out on top of a day it
+// couldn't read.
+func (s *Store) ready(today int) (*Store, error) {
+	m, err := s.e.MaxSeq(today)
+	if err != nil {
+		s.Close()
+		return nil, fmt.Errorf("reading the stored record ids: %w", err)
+	}
 	s.mu.Lock()
-	s.seq[today] = s.e.MaxSeq(today)
+	s.seq[today] = max(s.seq[today], m)
+	s.seqRead[today] = true
 	s.mu.Unlock()
-	return s
+	return s, nil
 }
 
 // importText adds the retained days' text, each day with its own ids. It
 // returns how many records it added and whether every file was read; an
 // incomplete import leaves the files unmarked, to be done again.
 func (s *Store) importText(o Options, today int) (n int, complete bool) {
-	before := s.e.Count()
+	before, errBefore := s.e.Count()
 	complete = true
 	for d := today - KeepDays; d <= today; d++ {
 		if files := dayText(o.Dir, d); textBytes(files) > 0 {
@@ -127,7 +142,13 @@ func (s *Store) importText(o Options, today int) (n int, complete bool) {
 			}
 		}
 	}
-	return s.e.Count() - before, complete
+	after, err := s.e.Count()
+	if err = errors.Join(errBefore, err); err != nil {
+		// Without both counts it can't tell what the files hold.
+		o.Warn("loghorn: counting the stored records: " + firstLine(err) + "; the next start imports the text logs again")
+		return 0, false
+	}
+	return after - before, complete
 }
 
 // load reads text files of day into s, ids carrying that day. A day is

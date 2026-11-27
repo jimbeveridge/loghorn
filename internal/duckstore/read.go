@@ -171,24 +171,31 @@ func (e *Engine) Tallies(source, service, kind string) (map[string]schema.Tally,
 	return out, rows.Err()
 }
 
-// MaxSeq is the highest per-day sequence stored for day, or 0.
-func (e *Engine) MaxSeq(day int) int {
+// MaxSeq is the highest per-day sequence stored for day, or 0 when it
+// holds none.
+func (e *Engine) MaxSeq(day int) (int, error) {
 	var id *int64
 	lo := int64(day) << 32
-	if err := e.db.QueryRow("SELECT max(_id) FROM "+sessionSchema+"all_records WHERE _id >= ? AND _id < ?", lo, lo+1<<32).Scan(&id); err != nil || id == nil {
-		return 0
+	if err := e.db.QueryRow("SELECT max(_id) FROM "+sessionSchema+"all_records WHERE _id >= ? AND _id < ?", lo, lo+1<<32).Scan(&id); err != nil {
+		return 0, err
 	}
-	return int(*id - lo)
+	if id == nil {
+		return 0, nil
+	}
+	return int(*id - lo), nil
 }
 
 // Count is how many records are stored.
-func (e *Engine) Count() int {
+func (e *Engine) Count() (int, error) {
 	var n int
 	if err := e.db.QueryRow("SELECT count(*) FROM " + sessionSchema + "all_records").Scan(&n); err != nil {
-		return 0
+		return 0, err
 	}
-	return n
+	return n, nil
 }
+
+// Warn reports msg to the user through the engine's warn function.
+func (e *Engine) Warn(msg string) { e.warn(msg) }
 
 // Failed reports whether a file write failed this session, sending later
 // records to memory.

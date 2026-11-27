@@ -403,3 +403,59 @@ func TestMemoryEngineSpillsToItsOwnTempDir(t *testing.T) {
 		t.Errorf("temp folder left after Close: %v", err)
 	}
 }
+
+// TestRowRetryStopsOnSameError: when DuckDB refuses a batch everywhere and
+// its first row alone fails the same way, the fault isn't in the rows: the
+// batch is skipped (and counted) without a row-by-row retry, and each
+// distinct error is warned about once per session.
+func TestRowRetryStopsOnSameError(t *testing.T) {
+	batch := func(n int) []record.Record {
+		rs := make([]record.Record, n)
+		for i := range rs {
+			rs[i] = withSeq(logRec(t, "api", "s", ``), i+1)
+		}
+		return rs
+	}
+	for _, file := range []bool{false, true} {
+		var warns []string
+		warn := func(m string) { warns = append(warns, m) }
+		var e *Engine
+		if file {
+			e = openFiles(t, t.TempDir(), warn)
+		} else {
+			var err error
+			if e, err = OpenMemory(config.Input{}, warn); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tries := 0
+		e.wmu.Lock()
+		e.failWrites = file
+		e.rejectRow = func(record.Record) bool { tries++; return true }
+		e.write(batch(10))
+		e.write(batch(10))
+		e.wmu.Unlock()
+		// Per batch: the batch in memory, then its first row (memory) or
+		// nothing more (the file, refused before any row is looked at).
+		want := 4
+		if file {
+			want = 2
+		}
+		if tries != want {
+			t.Errorf("file=%v: %d row checks, want %d (no row-by-row loop)", file, tries, want)
+		}
+		if len(warns) != 1 || !strings.Contains(warns[0], "skipped") {
+			t.Errorf("file=%v: warnings %q, want one", file, warns)
+		}
+		e.mu.Lock()
+		skipped := e.skipped
+		e.mu.Unlock()
+		if skipped != 20 {
+			t.Errorf("file=%v: skipped %d, want 20", file, skipped)
+		}
+		e.wmu.Lock()
+		e.failWrites, e.rejectRow = false, nil
+		e.wmu.Unlock()
+		e.Close()
+	}
+}

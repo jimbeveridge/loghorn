@@ -394,3 +394,61 @@ func withDay(r record.Record, n int) record.Record {
 	r.Seq = DayNumber(dayNow)<<32 + 100 + n
 	return r
 }
+
+// TestSeqSurvivesMaxSeqError: while the stored ids of a day can't be read,
+// a record takes the next id after the highest one given out this session,
+// and the day asks again; once the read works, ids continue after both.
+func TestSeqSurvivesMaxSeqError(t *testing.T) {
+	s := New(ModeHistorical, time.Time{})
+	defer s.Close()
+	var warns []string
+	s.warn = func(m string) { warns = append(warns, m) }
+	fail, asked := true, 0
+	s.maxSeq = func(day int) (int, error) {
+		asked++
+		if fail {
+			return 0, fmt.Errorf("read failed (test)")
+		}
+		return 0, nil // the records added so far aren't written yet
+	}
+	s.Add(rec("a", t0), time.Time{})
+	s.Add(rec("a", t0), time.Time{})
+	fail = false
+	s.Add(rec("a", t0), time.Time{})
+	s.Add(rec("a", t0), time.Time{})
+	if asked != 3 {
+		t.Errorf("MaxSeq asked %d times, want 3 (again after each failure, then not)", asked)
+	}
+	if len(warns) != 1 {
+		t.Errorf("warnings %q, want one", warns)
+	}
+	seen := map[int]bool{}
+	for _, r := range s.Records() {
+		if seen[r.Seq] {
+			t.Errorf("id %d given twice", r.Seq)
+		}
+		seen[r.Seq] = true
+	}
+	if len(seen) != 4 {
+		t.Errorf("%d distinct ids, want 4", len(seen))
+	}
+}
+
+// TestUntimedAfterOutOfRangeKeepsValidTime: a time _time can't hold is
+// stored as NULL, so it isn't passed on: the untimed record after it takes
+// the last valid time.
+func TestUntimedAfterOutOfRangeKeepsValidTime(t *testing.T) {
+	s := New(ModeHistorical, time.Time{})
+	defer s.Close()
+	s.Add(rec("a", t0), time.Time{})
+	s.Add(rec("a", time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC)), time.Time{})
+	s.Add(rec("a", time.Time{}), time.Time{})
+	s.Flush()
+	var got *time.Time
+	if err := s.e.DB().QueryRow("SELECT _time FROM all_records WHERE _id = 3").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || !got.Equal(t0) {
+		t.Errorf("untimed record's _time = %v, want %v", got, t0)
+	}
+}
