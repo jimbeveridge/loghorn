@@ -77,7 +77,8 @@ reputation comes from somewhere else:
 - **Aggregate operation view** — every trace of one endpoint merged into a single
   tree, with p50/p95 and error counts per step.
 - **`loghorn query`** — any view's data from the command line as TSV, CSV, Markdown,
-  JSON or YAML, or the DuckDB SQL that reproduces it.
+  JSON or YAML, or the DuckDB SQL that reproduces it. `-sql` runs your own read-only
+  SQL against the stored records.
 
 ## Reference
 
@@ -347,6 +348,12 @@ or `$LOGHORN_DATA_DIR` moves it. Records go to `loghorn.log` and spans to
 owner-only, because a dev server's logs can carry tokens and auth headers, and a lock
 in it keeps a second `serve` out.
 
+Inside it, `loghorn.duckdb` holds every record in one `records` table. Each finished
+day moves to a Parquet file in `duckdb-archive/`. `loghorn.duckdb.imported` marks
+the database as complete, so the next start does not import the text files again;
+without it (after a crash, say) `serve` imports them again, and is unreachable
+until that finishes.
+
 Runs recorded while `serve` was down wait in `incoming/<run id>/` until `serve`
 adopts them.
 
@@ -466,6 +473,12 @@ loghorn query '/?q=…'                            # no host: the running serve,
   extension (`.csv`, `.md`, `.json`, `.jsonl`, `.yaml`, `.toon`, `.sql`).
 - `-to-sql` prints DuckDB SQL that reproduces the view instead of its data.
 - `-limit N` overrides the URL's row limit (samples) or top (table, graph).
+- `-sql <text | @file | @->` runs one read-only DuckDB query against the running
+  serve instead of a URL: `loghorn query -sql 'SELECT count(*) FROM loghorn.tables'`.
+  `loghorn.tables` lists the tables and views to query (`SHOW TABLES` is not the
+  way). The answer is at most 1,000 rows unless `-limit` says more, never more than
+  100,000, and a query that runs longer than 10 s is stopped. DESCRIBE, SHOW and
+  SUMMARIZE are accepted. Text after a trailing `;` is refused.
 - Flags may come before or after the URL.
 - The page's Copy button copies the same export for Samples, Table and Graph. In the
   Heatmap view it copies the span list under the heatmap; the heatmap itself is
@@ -482,7 +495,7 @@ loghorn query '/?q=…'                            # no host: the running serve,
 | `serve` | `-data`, `-socket`, `-web-port`, `-otlp-http-port`, `-log FILE` |
 | `run` | `-filter`, `-serve`, `-service`, `-serve-down`, `-notify`, `-notify-max-age`, `-notify-reset`, `-notify-sound`, `-shutdown-grace` |
 | `open` | `-filter`, `-view`, `-web-port`, `-gh-job`, `-gh-run` |
-| `query` | `-o`, `-format`, `-limit`, `-to-sql` |
+| `query` | `-o`, `-format`, `-limit`, `-to-sql`, `-sql` (at most 100,000 rows, 10 s) |
 | `ui` | `-print` |
 | `status` | `-env` |
 

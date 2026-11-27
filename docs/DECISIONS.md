@@ -436,7 +436,9 @@ or has not yet answered.
   (no JOINs); DuckDB has no independent writers, and serve already accepts
   OTLP from several processes at once.
 - **Supersedes:** D-025's two tables and D-026's two files and lock-holder
-  ownership. D-027 to D-029 are unchanged.
+  ownership. D-028 and D-029 are unchanged. D-027 was revised on 2026-11-27: its
+  imported mark is now the sidecar file `loghorn.duckdb.imported`, not
+  the `_meta` table.
 - **Consequences:** Each batch is one transaction in one table. Files from
   the two-table builds (`logs.duckdb`, `traces.duckdb`, `logs-` and
   `traces-` archives) are ignored; the new file is filled from text once.

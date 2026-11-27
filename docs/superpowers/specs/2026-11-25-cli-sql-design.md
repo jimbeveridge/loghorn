@@ -10,7 +10,7 @@ An LLM agent debugging an app should be able to ask Loghorn questions in SQL, on
 
 - `loghorn query -sql 'SELECT …'` (and `@file`, `@-`) runs against the running `loghorn serve` and prints the rows as TSV by default, or CSV, Markdown, JSON or JSON lines with `-format` / `-o`.
 - The table model in `query.SQLHeader` exists exactly as written there, so SQL printed by `loghorn query -to-sql` runs unchanged and returns the rows the web view shows.
-- An agent can discover the tables and columns with SQL alone (`SHOW ALL TABLES`, `DESCRIBE logs."app"`, `information_schema.columns`).
+- An agent can discover the tables and columns with SQL alone (`SELECT * FROM loghorn.tables` (not `SHOW TABLES`), `DESCRIBE logs."app"`, `information_schema.columns`).
 - Output is bounded: at most 1,000 rows unless `-limit` says otherwise, with a note on stderr when rows were cut.
 - Errors are DuckDB's own message, prefixed with `loghorn:`, so the agent can fix its SQL.
 
@@ -38,7 +38,7 @@ Where the SQL runs: only `loghorn serve` may open `loghorn.duckdb` (D-030), so t
 
 **Endpoint.** `POST /api/sql` with `{"sql": "...", "format": "tsv", "limit": 1000}`, socket only. It answers the rows in the export format, or a JSON `{"error": ...}` with status 400. A cut result sets `X-Loghorn-Note: showing the first N rows; add LIMIT or pass -limit`. The query runs under the request context with a 30 s timeout.
 
-**Read-only guard.** DuckDB's own parser decides: `json_serialize_sql(sql)` must succeed (it accepts only queries: `SELECT`, `WITH`, `FROM`-first, `DESCRIBE`, `SHOW`, `SUMMARIZE`, set operations) and hold exactly one statement. The serialized tree is then walked: every table function must be on a short list (`range`, `generate_series`, `unnest`, `json_each`, `json_tree`, `duckdb_*` catalog functions), and every table reference must be a CTE name or sit in the `logs`, `spans`, `information_schema` or `pg_catalog` schemas. That blocks `read_text`, `read_csv`, `query()`, and `FROM 'file.csv'` replacement scans. The check runs on a separate connection before the query.
+**Read-only guard.** DuckDB's own parser decides: `json_serialize_sql(sql)` must succeed (it accepts only queries: `SELECT`, `WITH`, `FROM`-first, `DESCRIBE`, `SHOW`, `SUMMARIZE`, set operations) and hold exactly one statement. The serialized tree is then walked: every table function must be on a short list (`range`, `generate_series`, `unnest`, `json_each`, `json_tree`, `duckdb_*` catalog functions), and every table reference must be a CTE name or sit in the `logs`, `spans`, `loghorn`, `information_schema` or `pg_catalog` schemas. `DESCRIBE`, `SHOW` and `SUMMARIZE` serialize as `SELECT`, so the guard treats them as queries. That blocks `read_text`, `read_csv`, `query()`, and `FROM 'file.csv'` replacement scans. The check runs on a separate connection before the query.
 
 **Table model.** Schemas `memory.logs`, `memory.spans`, `memory.loghorn`. For each stream from `Store.Streams()` and for `*` of each source, one view:
 
@@ -46,7 +46,7 @@ Where the SQL runs: only `loghorn serve` may open `loghorn.duckdb` (D-030), so t
 
 **Macros.** `loghorn.this_run_start()` and `loghorn.this_run_id()` describe the most recent run: the `loghorn.run.id` of the newest record that has one, and the time of that run's first record. With no run yet, the start is serve's start and the id is NULL. *Open for Jim:* the web view's `this-run` under serve means "since serve started"; the macros follow Jim's spec (a wrapped command's run) instead.
 
-**CLI.** `loghorn query -sql <text | @file | @->`; with `-sql` there is no URL argument. `-format`/`-o` pick csv, tsv (default), md, json or jsonl; `-limit N` caps rows (default 1,000). Values print as the export package prints them: NULL empty in TSV/CSV, timestamps RFC 3339 UTC, lists and structs as compact JSON.
+**CLI.** `loghorn query -sql <text | @file | @->`; with `-sql` there is no URL argument. `-format`/`-o` pick csv, tsv (default), md, json or jsonl; `-limit N` caps rows (default 1,000, at most 100,000), and a query is stopped after 10 s. Values print as the export package prints them: NULL empty in TSV/CSV, timestamps RFC 3339 UTC, lists and structs as compact JSON.
 
 ## Testing
 

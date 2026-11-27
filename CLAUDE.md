@@ -7,8 +7,10 @@
   receiver) **before** launching the child command. `os.Exit` skips deferred
   cleanup, and the child runs in its own process group, so an exit after
   launch leaves it running.
-- `serve` (`internal/serve`): take the data folder's lock, then bind the
-  socket and both ports, and only then serve; a failure undoes what came
+- `serve` (`internal/serve`): take the data folder's lock, then open the
+  store (which may import the text files first), then bind the socket and
+  both ports, and only then serve. Consequence: serve is unreachable while
+  the import runs, so clients see no socket until it ends; a failure undoes what came
   before it, so a supervisor can restart serve cleanly. serve never forks.
 
 ## Commands and serve

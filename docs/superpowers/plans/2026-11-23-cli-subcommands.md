@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- loghorn is public: never write `auction`, `taa`, `anvil-pulse` or any private app identifier into code, tests, docs or commit messages. Before each commit: `git grep -n -i -e auction -e taa -e anvil-pulse -- <changed files>`.
+- loghorn is public: never write a private application's identifiers (its name, paths, service names or cloud project ids) into code, tests, docs or commit messages.
 - This runs in the worktree `.claude/worktrees/cli-subcommands`: no heredocs in Bash, run each git command on its own (no `&&`/`;` chains with git), never set `XDG_CONFIG_HOME`. Write scripts with the Write tool.
 - Tests and demos never touch the real `~/.config/loghorn`, the real data folder or `/tmp/loghorn.sock`: set `HOME`, `LOGHORN_DATA_DIR` and `LOGHORN_SOCKET` to temp paths. Socket paths must fit 103 bytes: make socket dirs with `os.MkdirTemp("/tmp", "lh")` (macOS `t.TempDir()` paths are too long), and remove them in `t.Cleanup`.
 - Never pipe input into a `loghorn` binary while probing by hand; use `< file`.

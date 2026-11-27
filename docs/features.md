@@ -1,7 +1,7 @@
 # Web view features (Scuba parity)
 
 A checklist of the controls in Facebook's original Scuba query sidebar, mapped
-to loghorn's web view (`loghorn -web`). Use it to pick what to build next and
+to loghorn's web view (`loghorn serve`, then `loghorn ui`). Use it to pick what to build next and
 to record what's done.
 
 Status: **done** · **partial** · **todo** · **n/a** (doesn't fit loghorn)

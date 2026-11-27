@@ -31,7 +31,10 @@ folding. D-025 and D-026 are superseded.
 | Verification | 2026-11-24 | `go vet ./...`; `go test ./...`; `-race` on duckstore, store, web, query, main | `cedf198` |
 | Whole-branch review fixes (below) | 2026-11-24 | Each Important finding's test failed first; `go test ./...`; `-race`; all 8055 parity queries | `dc8e65a` |
 | Merge upstream `main` (CLI subcommands, `loghorn serve`) | 2026-11-25 | `go vet ./...`; `go test ./...`; `-race` on duckstore, store, serve, query, web, main; all 8055 parity queries | `a21dcaf` |
-| One `records` table in `loghorn.duckdb` (D-030) | 2026-11-25 | Tests changed first and failed; `go test ./...`; `-race`; all 8055 parity queries | this commit |
+| One `records` table in `loghorn.duckdb` (D-030) | 2026-11-25 | Tests changed first and failed; `go test ./...`; `-race`; all 8055 parity queries | `bda983e` |
+| `loghorn query -sql` (D-031) | 2026-11-25 | Guard, view and CLI tests; `-to-sql` output equals the web view's rows (`TestToSQLOverModel`) | see "SQL from the command line" |
+| The 2026-11-27 review's fixes (§1-§3, below) | 2026-11-27 | Each commit names the tests that failed first | `ac7a073`..`b3289df` |
+| Post-merge fixes plan, tasks 1-6 (`docs/superpowers/plans/2026-11-27-post-merge-fixes.md`): Go query engine removed (D-033), ids stay unique and serve stays findable when DuckDB reads fail, `-sql` capped at 100,000 rows and 10 s with config locked, duration fast path equal to `ParseDuration`, docs brought up to date | 2026-11-27 | `gofmt`, `go vet ./...`, `go test -race ./...` after each task; reviews per task | `d31a3d2`..this task's commit |
 
 ### After merging upstream main (2026-11-25)
 
@@ -130,6 +133,11 @@ numbers from 2026-11-24 are in the last column for comparison.
 | Heatmap, db spans | 50 ms | 82 ms | 86 ms |
 | Kinds / schema / trace | 3 / 1 / 2 ms | 4 / 1 / 19 ms | 3 / 2 / 3 ms |
 
+- What these numbers cover: a warm database, one day, about 770k
+  records, the representative web requests in the table. They do not
+  cover `loghorn query -sql`, ranges of several days (which also read the
+  Parquet archives), a cold start (first query after open, or the import
+  itself: about 20 s), or the in-memory fallback.
 - Every representative request is under the ~500 ms target, and the one
   table is as fast or faster than two everywhere. Table p95 is still the
   slowest: the latency field is text (`"0.123s"`) parsed per record.

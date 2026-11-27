@@ -49,7 +49,7 @@ The `records` table has the following fixed columns, with NULL where a field doe
 | `attributes` | JSON; other normalized field paths and values |
 | `_raw` | Original captured record, preserved losslessly |
 
-Use `all_records`, a logical UNION ALL view with explicit compatible columns over the `records` table and the Parquet archives. Filter by service and stream values rather than creating new physical tables or per-stream views. The existing Go `record.Record` remains the application-level representation. Custom fields are extracted and converted safely from JSON; values that fail conversion remain available in the raw data.
+Use `all_records`, a logical UNION ALL view with explicit compatible columns over the `records` table and the Parquet archives. Filter by service and stream values rather than creating new physical tables or per-stream views. *(D-031 overrides this for the `-sql` surface: there, each stream gets a view over `records`.)* The existing Go `record.Record` remains the application-level representation. Custom fields are extracted and converted safely from JSON; values that fail conversion remain available in the raw data.
 
 ### Original records and schema discovery
 

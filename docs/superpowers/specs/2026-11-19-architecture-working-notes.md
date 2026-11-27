@@ -74,7 +74,7 @@ LLM's interface to it.
                             └── HTTP ── loghorn -sql / -url / DESCRIBE (LLMs)
    ```
 
-5. **Easy mode vs scaling mode [user idea, reframed].** The user proposed:
+5. **[superseded by D-030: one `records` table in one DuckDB file; no separate modes] Easy mode vs scaling mode [user idea, reframed].** The user proposed:
    - *easy mode*: loghorn is the OTEL receiver, stores into SQLite on the fly,
      expires data; SQL goes to SQLite; a few hundred MB.
    - *scaling mode*: OTEL Collector → ClickHouse (Docker or another machine);
