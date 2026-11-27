@@ -79,8 +79,11 @@ func bucketStart(t time.Time, size time.Duration, loc *time.Location) time.Time 
 	return mid.Add(lt.Sub(mid) / size * size)
 }
 
-// axis is xAxis given the earliest and latest record times; any is false
-// when there are no timed records.
+// axis is the graph's and heatmap's bucketing, given the earliest and
+// latest record times; any is false when there are no timed records. The x
+// range is clipped to the data and to [from, to]; a zero from or to leaves
+// that side to the data. end is the end of that range; with no records,
+// starts is empty and the bucket is chosen for a zero span.
 func axis(first, last time.Time, any bool, bucket string, from, to time.Time, loc *time.Location) (starts []time.Time, size time.Duration, name string, end time.Time, err error) {
 	starts = []time.Time{}
 	if !any {

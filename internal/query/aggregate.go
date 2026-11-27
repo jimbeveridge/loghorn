@@ -128,7 +128,9 @@ type rankStat struct {
 	key string
 }
 
-// rankStats orders groups by their stats, as rankGroups describes.
+// rankStats orders groups by their metric value, ascending when asc. A
+// group with no value sorts last in either direction; ties fall back to
+// count descending, then key.
 func rankStats[G any](groups []G, stat func(G) rankStat, asc bool) {
 	type ranked struct {
 		g G

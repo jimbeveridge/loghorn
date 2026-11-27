@@ -56,8 +56,8 @@ const errorRateNote = `-- error_rate is the fraction of rows whose severity, tri
 -- and upper-cased, is ERROR, CRITICAL, ALERT, EMERGENCY or FATAL.
 `
 
-// errorSeverityRE matches what isErrorSeverity accepts once upper-cased:
-// the set, trimmed of Unicode white space (\t-\r, U+0085 and \p{Z} are
+// errorSeverityRE matches an error severity (ERROR or higher) once
+// upper-cased, as RunSQL's error_rate counts it: the set, trimmed of Unicode white space (\t-\r, U+0085 and \p{Z} are
 // exactly unicode.IsSpace).
 const errorSeverityRE = `'[\t-\r\x{85}\p{Z}]*(ERROR|CRITICAL|ALERT|EMERGENCY|FATAL)[\t-\r\x{85}\p{Z}]*'`
 
@@ -170,14 +170,14 @@ func (b *sqlBuilder) note(n string) {
 	b.notes = append(b.notes, n)
 }
 
-// sqlGroup is one group-by column: its identifier, and the text Go ranks
-// ties on and names series by (groupKey's label).
+// sqlGroup is one group-by column: its identifier, and the text RunSQL
+// ranks ties on and names series by (the group's label).
 type sqlGroup struct {
 	id, text string
 }
 
-// groupCols translates the group-by paths. groupKey labels a value with its
-// Go text, which DuckDB writes the same way only for strings, ints and
+// groupCols translates the group-by paths. RunSQL labels a group's value
+// with its Go text, which DuckDB writes the same way only for strings, ints and
 // bools; other types are an error, since the tie order and series names
 // would differ.
 func groupCols(paths []string, s schema.Schema) ([]sqlGroup, error) {
@@ -201,7 +201,7 @@ func groupCols(paths []string, s schema.Schema) ([]sqlGroup, error) {
 
 // aggInput is the column aggregate a reads and its type: none for count;
 // for error_rate the severity column, or "" when the schema has no string
-// severity (isErrorSeverity then never matches).
+// severity (no record then counts as an error).
 func aggInput(a Aggregate, s schema.Schema) (string, schema.Type, error) {
 	switch a.Op {
 	case "count":
@@ -217,8 +217,8 @@ func aggInput(a Aggregate, s schema.Schema) (string, schema.Type, error) {
 	return id, fieldType(s, a.Field), err
 }
 
-// aggSQL is aggregate a over column id of type t, as metricValue computes
-// it: avg, a float or duration sum and error_rate rounded to 15 significant
+// aggSQL is aggregate a over column id of type t, as RunSQL computes it
+// (metricSQL, metric): avg, a float or duration sum and error_rate rounded to 15 significant
 // digits (round15SQL), pNN by nearest rank.
 func (b *sqlBuilder) aggSQL(a Aggregate, id string, t schema.Type) string {
 	switch a.Op {
@@ -256,7 +256,8 @@ func round15SQL(x string) string {
 	return "CAST(printf('%.14e', " + x + ") AS DOUBLE)"
 }
 
-// rankOrder is the ORDER BY list of rankGroups: the order metric (count
+// rankOrder is the ORDER BY list RunSQL ranks groups by (rankStats): the
+// order metric (count
 // descending by default) with no value last, then count descending, then
 // the group text ascending (an empty value first, as its \x01 key sorts).
 func (b *sqlBuilder) rankOrder(o *Order, s schema.Schema, keys []sqlGroup) (string, error) {
@@ -283,7 +284,7 @@ func (b *sqlBuilder) rankOrder(o *Order, s schema.Schema, keys []sqlGroup) (stri
 	return strings.Join(parts, ", "), nil
 }
 
-// tableSQL groups and ranks as runTable does.
+// tableSQL groups and ranks as RunSQL's table view does.
 func (b *sqlBuilder) tableSQL(q Query, s schema.Schema, from string, where []string) (string, error) {
 	keys, err := groupCols(q.GroupBy, s)
 	if err != nil {
@@ -311,7 +312,7 @@ func (b *sqlBuilder) tableSQL(q Query, s schema.Schema, from string, where []str
 	out.WriteString("FROM " + from + "\n")
 	out.WriteString(whereClause(where))
 	if len(keys) == 0 {
-		// One row over every match, as runTable's single group.
+		// One row over every match: RunSQL's single group.
 		return strings.TrimSuffix(out.String(), "\n") + ";\n", nil
 	}
 	order, err := b.rankOrder(q.Order, s, keys)
@@ -339,7 +340,8 @@ const graphNote = `-- Graph, long form: one row per bucket and series that has r
 -- range; those past the top fold into other.
 `
 
-// graphSQL buckets and ranks as runGraph does, with the bucket r resolved.
+// graphSQL buckets and ranks as RunSQL's graph view does, with the bucket
+// r resolved.
 func (b *sqlBuilder) graphSQL(q Query, s schema.Schema, r *Result, from string, where []string) (string, error) {
 	if r == nil || r.Graph == nil {
 		return "", errors.New("sql: a graph needs its run result")
@@ -422,7 +424,7 @@ func (b *sqlBuilder) graphSQL(q Query, s schema.Schema, r *Result, from string, 
 	return out.String(), nil
 }
 
-// heatmapSQL counts spans by bucket and band as runHeatmap does, with the
+// heatmapSQL counts spans by bucket and band as RunSQL's heatmap does, with the
 // bucket and band edges r resolved.
 func (b *sqlBuilder) heatmapSQL(q Query, s schema.Schema, r *Result, from string, where []string) (string, error) {
 	if r == nil || r.Heatmap == nil || len(r.Heatmap.Bands) == 0 {
@@ -474,8 +476,8 @@ func (b *sqlBuilder) heatmapSQL(q Query, s schema.Schema, r *Result, from string
 	return out.String(), nil
 }
 
-// bucketExpr is the start of the bucket holding time column t, as xAxis
-// and bucketIndex place it. Sizes up to 1h truncate the absolute time, as
+// bucketExpr is the start of the bucket holding time column t: the last of
+// the run's bucket starts at or before it (axis makes the starts). Sizes up to 1h truncate the absolute time, as
 // time_bucket does (both align to UTC midnight). 6h and 1d count from local
 // midnight in time.Local, the last bucket of a day running to the next
 // midnight. starts are the run's bucket starts.
@@ -806,8 +808,8 @@ func floatLit(f float64) (string, error) {
 	return s, nil
 }
 
-// cellConds narrows to one heatmap cell as HeatCell.contains does, which
-// reads duration_ms as a raw number; only an int or float column holds that.
+// cellConds narrows to one heatmap cell (from <= time < to, lo <=
+// duration_ms < hi), reading duration_ms as a raw number; only an int or float column holds that.
 func cellConds(c *HeatCell, s schema.Schema) ([]string, error) {
 	switch fieldType(s, durationField.Path) {
 	case schema.TInt, schema.TFloat:

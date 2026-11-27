@@ -346,14 +346,15 @@ func (x *sqlRun) graphCols() {
 	x.plot = x.metricCol(plot)
 }
 
-// metricSQL is metricValue in SQL, over the rows of a group.
+// metricSQL is aggregate a over the rows of a group. A group with no
+// usable value, or a result that is not finite, has no value (metric).
 func (x *sqlRun) metricSQL(a Aggregate, col int) string {
 	switch a.Op {
 	case "count":
 		return "CAST(count(*) AS DOUBLE)"
 	case "error_rate":
-		// isErrorSeverity trims with strings.TrimSpace: tabs, newlines and
-		// Unicode spaces too.
+		// A severity of ERROR or higher, in any case, trimmed as
+		// strings.TrimSpace trims: tabs, newlines and Unicode spaces too.
 		return "CAST(count(*) FILTER (WHERE upper(trim(" + v(x.sev) + ", '" + schema.Space + "')) IN ('ERROR','CRITICAL','ALERT','EMERGENCY','FATAL')) AS DOUBLE) / count(*)"
 	}
 	val := "CAST(" + v(col) + " AS DOUBLE)"
@@ -395,7 +396,9 @@ func (x *sqlRun) groupFields() []schema.Field {
 }
 
 // groupRows runs one GROUP BY over m (restricted by cond) and returns each
-// group with its labels and key as groupKey makes them.
+// group with its labels and key. An empty or bad value is labelled
+// "(empty)" and flagged; its key marks it with \x01 so it never merges
+// with a real "(empty)" value.
 func (x *sqlRun) groupRows(cond string, extra []any, mets []string) ([]*scanned, error) {
 	gf := x.groupFields()
 	sel := make([]string, 0, len(x.groups)+2+len(mets))
@@ -461,7 +464,7 @@ func finite(n sql.NullFloat64) (float64, bool) {
 	return n.Float64, true
 }
 
-// metric is a's value from n as metricValue gives it: error rates, averages
+// metric is a's value from n: error rates, averages
 // and sums of non-integers are rounded to 15 significant digits (Round15).
 func (x *sqlRun) metric(a Aggregate, n sql.NullFloat64) (float64, bool) {
 	v, ok := finite(n)
@@ -495,7 +498,7 @@ func (x *sqlRun) table(res *Result) error {
 		return err
 	}
 	if len(x.q.GroupBy) == 0 {
-		if len(groups) == 0 { // runTable still shows one row for no records
+		if len(groups) == 0 { // the table still shows one row for no records
 			groups = []*scanned{{mets: make([]sql.NullFloat64, len(mets))}}
 		}
 	} else {

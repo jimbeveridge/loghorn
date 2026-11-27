@@ -117,7 +117,7 @@ LIMIT 10;
 }
 
 func TestToSQLErrorRateNoSeverity(t *testing.T) {
-	// sqlSchema has no severity: isErrorSeverity never matches.
+	// sqlSchema has no severity: no record counts as an error.
 	got, err := ToSQL(Query{Stream: "app", View: "table", Aggregates: []Aggregate{{Op: "error_rate"}}}, sqlSchema, &Result{View: "table"})
 	if err != nil {
 		t.Fatal(err)
