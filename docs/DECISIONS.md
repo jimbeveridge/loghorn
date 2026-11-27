@@ -202,9 +202,9 @@ or has not yet answered.
   slowed.
 - **Alternatives:** Answer from committed data only (stale by one batch).
 
-## D-016 `query.Run` and `schema.Infer` stay as the test oracle
+## D-016 `query.Run` and `schema.Infer` stay as the test oracle (superseded by D-033)
 
-- **Date:** 2026-11-23 · **Status:** Accepted · **Decided by:** Claude (defers part of the design's "delete after parity")
+- **Date:** 2026-11-23 · **Status:** Superseded by D-033 (both removed; behaviour tests state expected answers); accepted before that · **Decided by:** Claude (defers part of the design's "delete after parity")
 - **Decision:** The web no longer calls `query.Run` or `schema.Infer`, but
   both stay in the code, used by the parity tests.
 - **Why:** The parity tests are the proof that SQL answers match. Deleting
@@ -492,9 +492,30 @@ or has not yet answered.
 - **Why:** People search logs in their own language. Folding only ASCII
   for an ASCII term (Go's `query.Run`) misses text a reader sees as the
   same word.
-- **Consequences:** `query.Run`, kept only as a test reference (D-016),
-  differs here. `TestSearchFoldsUnicodeCase` holds written expected values
-  instead of comparing with it.
+- **Consequences:** `query.Run`, then kept only as a test reference
+  (D-016), differed here, so `TestSearchFoldsUnicodeCase` held written
+  expected values instead of comparing with it. D-033 has since removed
+  `query.Run`; every behaviour test now states its expected values.
+
+## D-033 Behaviour tests state expected answers; the Go engine is removed
+
+- **Date:** 2026-11-27 · **Status:** Accepted · **Decided by:** the
+  2026-11-27 follow-up review's plan (supersedes D-016)
+- **Decision:** `query.Run`, the Go query engine, and `schema.Infer`, its
+  in-memory schema inference, are deleted, with every helper only they
+  used. The behaviour tests in `internal/query` run on DuckDB through
+  `RunSQL` and state the answer they expect, instead of comparing with
+  `query.Run`. Schema tests build tallies with `schema.Classify`, as the
+  writer does, and check `schema.FromTallies`.
+- **Why:** Once the web view and the CLI answer only through SQL, a
+  second engine is a reference with behaviour of its own (D-032
+  found one), costs upkeep on every query change, and answers tests about
+  code no user runs. Written expected values check what users see.
+- **Consequences:** `ToSQL` is checked against `RunSQL`: the exported SQL,
+  run on the same records, must give the rows `RunSQL` gives
+  (`TestToSQLDuckDB`, `TestToSQLOverModel`). `TestSpeedAtScale` times only
+  the store. A change to `RunSQL` that also changes an answer must now
+  change a written expected value, which a reviewer sees.
 
 ---
 

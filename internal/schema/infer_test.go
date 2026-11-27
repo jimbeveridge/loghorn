@@ -9,8 +9,19 @@ import (
 	"github.com/jimbeveridge/loghorn/internal/record"
 )
 
-func rec(stream string, f map[string]any) record.Record {
-	return record.Record{Stream: stream, Fields: f}
+// tallied is the schema of a log stream whose records hold fields, each
+// value tallied with Classify as the writer does.
+func tallied(fields ...map[string]any) Schema {
+	tl := map[string]Tally{}
+	for _, f := range fields {
+		for path, v := range f {
+			t := tl[path]
+			t.Count++
+			t.Kinds |= Classify(v)
+			tl[path] = t
+		}
+	}
+	return FromTallies(record.SourceLog, "a", tl)
 }
 
 func typeOf(t *testing.T, s Schema, path string) Type {
@@ -23,22 +34,20 @@ func typeOf(t *testing.T, s Schema, path string) Type {
 }
 
 func TestInferTypes(t *testing.T) {
-	recs := []record.Record{
-		rec("db", map[string]any{
+	s := tallied(
+		map[string]any{
 			"timestamp": "2026-11-17T17:00:01.123Z", "message": "query ok",
 			"databaseContext.metadata.rowsAffected": json.Number("0"),
 			"databaseContext.metadata.latency":      "0.4ms",
 			"ok":                                    true, "tags": []any{"a"}, "ratio": json.Number("1.5"),
-		}),
-		rec("db", map[string]any{
+		},
+		map[string]any{
 			"timestamp": "2026-11-17T17:00:02.123Z", "message": "slow",
 			"databaseContext.metadata.rowsAffected": json.Number("42"),
 			"databaseContext.metadata.latency":      "87ms",
 			"ok":                                    false, "tags": []any{}, "ratio": json.Number("2"),
-		}),
-		rec("other", map[string]any{"message": 5}),
-	}
-	s := Infer("*", "", "db", recs)
+		},
+	)
 	want := map[string]Type{
 		"databaseContext.metadata.rowsAffected": TInt, "databaseContext.metadata.latency": TDuration,
 		"timestamp": TTimestamp, "message": TString, "ok": TBool, "tags": TJSON, "ratio": TFloat,
@@ -60,17 +69,17 @@ func TestInferTypes(t *testing.T) {
 }
 
 func TestInferMixedIsString(t *testing.T) {
-	s := Infer("*", "", "a", []record.Record{
-		rec("a", map[string]any{"rows": json.Number("3")}),
-		rec("a", map[string]any{"rows": "n/a"}),
-	})
+	s := tallied(
+		map[string]any{"rows": json.Number("3")},
+		map[string]any{"rows": "n/a"},
+	)
 	if got := typeOf(t, s, "rows"); got != TString {
 		t.Fatalf("rows=%s", got)
 	}
 }
 
 func TestInferNumberNeverTimestamp(t *testing.T) {
-	s := Infer("*", "", "a", []record.Record{rec("a", map[string]any{"at": json.Number("1763400000123"), "bare": "42"})})
+	s := tallied(map[string]any{"at": json.Number("1763400000123"), "bare": "42"})
 	if got := typeOf(t, s, "at"); got != TInt {
 		t.Errorf("at=%s", got)
 	}
@@ -78,16 +87,16 @@ func TestInferNumberNeverTimestamp(t *testing.T) {
 		t.Errorf("bare=%s", got)
 	}
 	// the well-known timestamp fields are timestamps whatever they hold
-	s = Infer("*", "", "a", []record.Record{rec("a", map[string]any{"receiveTimestamp": json.Number("1")})})
+	s = tallied(map[string]any{"receiveTimestamp": json.Number("1")})
 	if got := typeOf(t, s, "receiveTimestamp"); got != TTimestamp {
 		t.Errorf("receiveTimestamp=%s", got)
 	}
 }
 
 func TestInferNullsIgnored(t *testing.T) {
-	s := Infer("*", "", "a", []record.Record{
-		rec("a", map[string]any{"n": nil}), rec("a", map[string]any{"n": json.Number("3")}), rec("a", map[string]any{"n": ""}),
-	})
+	s := tallied(
+		map[string]any{"n": nil}, map[string]any{"n": json.Number("3")}, map[string]any{"n": ""},
+	)
 	f, _ := s.Field("n")
 	if f.Type != TInt || f.Count != 3 {
 		t.Errorf("%+v", f)
@@ -99,15 +108,13 @@ func TestDefaultColumns(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		f[fmt.Sprintf("f%02d", i)] = "v"
 	}
-	r1 := rec("a", f)
-	r2 := rec("a", map[string]any{"f09": "v", "f08": "v"})
-	s := Infer("*", "", "a", []record.Record{r1, r2})
+	s := tallied(f, map[string]any{"f09": "v", "f08": "v"})
 	want := []string{"timestamp", "severity", "message", "f08", "f09", "f00", "f01", "f02"}
 	if !reflect.DeepEqual(s.Columns, want) {
 		t.Fatalf("columns=%v want %v", s.Columns, want)
 	}
 	// absent well-known columns are skipped
-	s = Infer("*", "", "a", []record.Record{rec("a", map[string]any{"x": "1"})})
+	s = tallied(map[string]any{"x": "1"})
 	if !reflect.DeepEqual(s.Columns, []string{"x"}) {
 		t.Errorf("columns=%v", s.Columns)
 	}
@@ -146,24 +153,6 @@ func TestDefaultVisualizerLogEntry(t *testing.T) {
 	}
 }
 
-func TestInferBySource(t *testing.T) {
-	recs := []record.Record{
-		{Stream: "db", Source: "log", Fields: map[string]any{"a": "x"}},
-		{Stream: "db", Source: "otel", Fields: map[string]any{"b": "y"}},
-	}
-	s := Infer("*", "otel", "db", recs)
-	if len(s.Fields) != 1 || s.Fields[0].Path != "b" || s.Source != "otel" {
-		t.Fatalf("otel: %+v", s)
-	}
-	s = Infer("*", "", "db", recs)
-	if len(s.Fields) != 1 || s.Fields[0].Path != "a" || s.Source != "log" {
-		t.Fatalf("log: %+v", s)
-	}
-	if s := Infer("*", "bogus", "db", recs); len(s.Fields) != 0 {
-		t.Fatalf("bogus source matched records: %+v", s)
-	}
-}
-
 func TestDefaultColumnsSpanLead(t *testing.T) {
 	var fs []Field
 	for i, p := range []string{"timestamp", "name", "duration_ms", "severity", "trace_id"} {
@@ -176,21 +165,6 @@ func TestDefaultColumnsSpanLead(t *testing.T) {
 	got = DefaultColumns("", fs)
 	if got[0] != "timestamp" || got[1] != "severity" {
 		t.Fatalf("log lead = %v", got)
-	}
-}
-
-func TestInferService(t *testing.T) {
-	a := record.Record{Service: "a", Source: "otel", Stream: "db", Fields: map[string]any{"x": "1"}}
-	b := record.Record{Service: "b", Source: "otel", Stream: "db", Fields: map[string]any{"x": "1", "y": "2"}}
-	recs := []record.Record{a, b, b}
-	s := Infer("a", "otel", "db", recs)
-	if len(s.Fields) != 1 || s.Fields[0].Count != 1 {
-		t.Fatalf("service a: %+v", s.Fields)
-	}
-	for _, svc := range []string{"", "*"} {
-		if s := Infer(svc, "otel", "db", recs); len(s.Fields) != 2 || s.Fields[0].Count != 3 {
-			t.Fatalf("service %q: %+v", svc, s.Fields)
-		}
 	}
 }
 
@@ -256,26 +230,6 @@ func TestDefaultColumnsSpanAttributes(t *testing.T) {
 	}
 }
 
-func TestInferAllStreams(t *testing.T) {
-	recs := []record.Record{
-		{Source: record.SourceOtel, Stream: "db", Fields: map[string]any{"a": json.Number("1"), "mix": json.Number("1")}},
-		{Source: record.SourceOtel, Stream: "http", Fields: map[string]any{"b": "x", "mix": "s"}},
-		{Stream: "log", Fields: map[string]any{"c": "x"}},
-	}
-	s := Infer("", "otel", "*", recs)
-	for _, p := range []string{"a", "b"} {
-		if _, ok := s.Field(p); !ok {
-			t.Errorf("field %q missing", p)
-		}
-	}
-	if _, ok := s.Field("c"); ok {
-		t.Error("log field leaked into otel *")
-	}
-	if got := typeOf(t, s, "mix"); got != TString {
-		t.Errorf("mixed type = %v, want string", got)
-	}
-}
-
 func TestDefaultVisualizerStackPaths(t *testing.T) {
 	for _, p := range []string{"stack", "stacktrace", "stack_trace", "stackTrace", "error.stack", "exception.stacktrace", "otel.attributes.exception.stacktrace"} {
 		if got := DefaultVisualizer(p, TString); got != VMultiline {
@@ -293,10 +247,10 @@ func TestDefaultVisualizerStackPaths(t *testing.T) {
 }
 
 func TestInferMultilineStrings(t *testing.T) {
-	s := Infer("*", "", "a", []record.Record{
-		rec("a", map[string]any{"msg": "one line", "err": "boom\n", "sev": "INFO", "n": json.Number("1")}),
-		rec("a", map[string]any{"msg": "panic: x\n\ngoroutine 1 [running]:\nmain.main()", "err": "boom", "sev": "ERROR\n", "n": json.Number("2")}),
-	})
+	s := tallied(
+		map[string]any{"msg": "one line", "err": "boom\n", "sev": "INFO", "n": json.Number("1")},
+		map[string]any{"msg": "panic: x\n\ngoroutine 1 [running]:\nmain.main()", "err": "boom", "sev": "ERROR\n", "n": json.Number("2")},
+	)
 	vis := func(p string) string {
 		f, ok := s.Field(p)
 		if !ok {
@@ -314,7 +268,7 @@ func TestInferMultilineStrings(t *testing.T) {
 		t.Errorf("n=%s want number", v)
 	}
 	// A path with its own visualizer keeps it.
-	s = Infer("*", "", "a", []record.Record{rec("a", map[string]any{"severity": "ERROR\nmore", "db.statement": "select 1\nfrom t"})})
+	s = tallied(map[string]any{"severity": "ERROR\nmore", "db.statement": "select 1\nfrom t"})
 	if v := vis("severity"); v != VSeverity {
 		t.Errorf("severity=%s", v)
 	}

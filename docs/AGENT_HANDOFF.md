@@ -27,7 +27,7 @@ must stay available so structure can be pulled out later.
   (`docs/superpowers/specs/2026-11-23-duckdb-storage-design.md`, revised
   2026-11-24) with plan `docs/superpowers/plans/2026-11-24-duckdb-storage-v2.md`.
   It is built on `duckdb-storage` (PR jimbeveridge/loghorn#3, the first
-  design) and keeps its store façade, `query.RunSQL` and parity test; the
+  design) and keeps its store façade and `query.RunSQL`; the
   engine underneath is new. The plan is superseded in part; its note at
   the top says where.
 - Storage follows **D-030**, from the author's review: one `records`
@@ -45,9 +45,10 @@ must stay available so structure can be pulled out later.
   by Unicode rules.
 - The author's review of this branch is fixed for §1 to §6;
   `docs/PROJECT_STATUS.md` lists the commits by section.
-- `query.Run` and `schema.Infer` stay as the test oracle (D-016). The
-  parity test (`internal/query/parity_test.go`) compares 1 in 10 of 8055
-  queries by default; `PARITY_FULL=1` runs all (about 2 minutes).
+- The Go query engine (`query.Run`) and `schema.Infer` are removed
+  (D-033, superseding D-016). The behaviour tests in `internal/query` run
+  on DuckDB and state their expected answers; `ToSQL`'s exported SQL is
+  checked against `RunSQL`'s result on the same records.
 - Speed at about 770k records, restart, archive, disk and memory:
   `LOGHORN_SPEED=1 go test -run SpeedAtScale -v -timeout 30m ./internal/store`.
 

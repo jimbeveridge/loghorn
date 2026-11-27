@@ -92,3 +92,12 @@ func runSQL(t *testing.T, recs []record.Record, s schema.Schema, q Query, now, r
 	defer b.Close()
 	return RunSQL(context.Background(), b, s, q, now, runStart)
 }
+
+// inferred is the schema DuckDB infers for one stream of recs, over every
+// service.
+func inferred(t *testing.T, recs []record.Record, src, stream string) schema.Schema {
+	t.Helper()
+	b := openKeptBackend(t, recs)
+	defer b.Close()
+	return b.schema(t, "*", src, stream)
+}

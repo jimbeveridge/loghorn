@@ -353,7 +353,7 @@ func sortedCounts(m map[string]int) []Count {
 
 // Schema is the inferred schema of a stream (record.AllStreams: every
 // stream of source) within service ("" or "*": every service), exactly as
-// schema.Infer gives it, cached until the data changes.
+// FromTallies gives it for DuckDB's tallies, cached until the data changes.
 func (s *Store) Schema(service, source, stream string) (schema.Schema, error) {
 	defer s.read()()
 	k := [3]string{service, source, stream}

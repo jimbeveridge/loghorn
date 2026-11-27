@@ -74,11 +74,6 @@ func TestSpeedAtScale(t *testing.T) {
 	}
 	s.Flush()
 	t.Logf("wrote %d records in %v", n, time.Since(t0))
-	compare := os.Getenv("LOGHORN_SPEED_DUCKDB_ONLY") == ""
-	var all []record.Record // query.Run's copy of every record
-	if compare {
-		all = s.Records()
-	}
 	if got := mustInfo(t, s).Count; got != n {
 		t.Fatalf("stored %d, want %d", got, n)
 	}
@@ -97,7 +92,7 @@ func TestSpeedAtScale(t *testing.T) {
 		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
 		t.Logf("%-40s median %v", name, ds[len(ds)/2].Round(100*time.Microsecond))
 	}
-	queries := func(s *Store, label string, compare bool) {
+	queries := func(s *Store, label string) {
 		run := func(name string, q query.Query) {
 			src, _ := record.ParseSource(q.Source)
 			sch, err := s.Schema(q.Service, src, q.Stream)
@@ -106,9 +101,6 @@ func TestSpeedAtScale(t *testing.T) {
 			}
 			sch = schema.Effective(sch, nil)
 			measure(label+" "+name, func() error { _, err := s.Query(context.Background(), sch, q, now); return err })
-			if compare {
-				measure("query.Run "+name, func() error { _, err := query.Run(all, sch, q, now, time.Time{}); return err })
-			}
 		}
 		run("samples stream", query.Query{Stream: "stream1", Service: "*"})
 		run("samples filter+sort", query.Query{Stream: "stream1", Service: "*", Filters: []query.Filter{{Field: "httpRequest.status", Op: ">=", Values: []string{"400"}}}, Sort: query.Sort{Field: "bytes", Desc: true}})
@@ -121,10 +113,7 @@ func TestSpeedAtScale(t *testing.T) {
 		measure(label+" schema (cache cold)", func() error { s.cache = map[[3]string]cached{}; _, err := s.Schema("*", "log", "stream1"); return err })
 		measure(label+" trace", func() error { s.TraceRecords(fmt.Sprintf("%032x", 1000)); return nil })
 	}
-	// LOGHORN_SPEED_DUCKDB_ONLY=1 skips query.Run and its copy of every
-	// record (about 3 GB here), to measure DuckDB without that memory
-	// pressure beside it.
-	queries(s, "duckdb", compare)
+	queries(s, "duckdb")
 	sizes := func(when string) {
 		var parts []string
 		for _, pat := range []string{"*.duckdb", "*.duckdb.wal", duckstore.ArchiveDir + "/*.parquet"} {
@@ -158,14 +147,14 @@ func TestSpeedAtScale(t *testing.T) {
 	if got := mustInfo(t, s).Count; got != n {
 		t.Fatalf("after archiving: %d records, want %d", got, n)
 	}
-	queries(s, "parquet", false)
+	queries(s, "parquet")
 	var ru syscall.Rusage
 	syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
 	rss := ru.Maxrss // bytes on macOS, KiB on Linux
 	if runtime.GOOS == "linux" {
 		rss <<= 10
 	}
-	t.Logf("peak RSS of the test process: %d MB (query.Run's copy included: %v)", rss>>20, compare)
+	t.Logf("peak RSS of the test process: %d MB", rss>>20)
 }
 
 func logRecordOK(line string) (record.Record, bool) {

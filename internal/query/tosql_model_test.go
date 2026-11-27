@@ -15,7 +15,7 @@ import (
 
 // TestToSQLOverModel runs the equivalence cases against the table model as
 // serve builds it (duckstore views over the stored records) instead of
-// tables loaded by hand: ToSQL's SQL must give Run's answer there too.
+// tables loaded by hand: ToSQL's SQL must give RunSQL's answer there too.
 func TestToSQLOverModel(t *testing.T) {
 	recs := duckRecords()
 	e, err := duckstore.OpenMemory(config.Input{}, func(string) {})
@@ -40,7 +40,7 @@ func TestToSQLOverModel(t *testing.T) {
 			if c.q.Source == record.SourceOtel {
 				s = duckSpanSchema
 			}
-			res, err := Run(recs, s, c.q, duckNow, time.Time{})
+			res, err := runSQL(t, recs, s, c.q, duckNow, time.Time{})
 			if err != nil {
 				t.Fatal(err)
 			}

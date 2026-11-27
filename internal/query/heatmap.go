@@ -3,10 +3,8 @@ package query
 import (
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
-	"github.com/jimbeveridge/loghorn/internal/record"
 	"github.com/jimbeveridge/loghorn/internal/schema"
 )
 
@@ -48,15 +46,6 @@ func (c *HeatCell) validate() error {
 	return nil
 }
 
-// contains reports whether r falls in the cell.
-func (c *HeatCell) contains(r *record.Record) bool {
-	if r.Time.IsZero() || r.Time.Before(c.From) || !r.Time.Before(c.To) {
-		return false
-	}
-	d, ok := durationMs(r)
-	return ok && (c.Lo == nil || d >= *c.Lo) && d < c.Hi
-}
-
 const (
 	bandsPerDecade = 5
 	// minBandMs and maxBandMs bound the grid at 1ns and about 30 years, so
@@ -67,16 +56,6 @@ const (
 )
 
 var durationField = schema.Field{Path: "duration_ms", Type: schema.TFloat}
-
-// durationMs is the raw duration_ms as a number, whatever the schema says, so
-// an int-inferred or retyped field still bins.
-func durationMs(r *record.Record) (float64, bool) {
-	v := schema.Convert(r.Fields[durationField.Path], durationField)
-	if v.Bad || v.Empty {
-		return 0, false
-	}
-	return v.Num, true
-}
 
 // decadeAtOrBelow is the largest d with 10^d <= x, for x > 0. It checks
 // against math.Pow, the function the band edges use, so float error in
@@ -115,53 +94,4 @@ func bands(minMs, maxMs float64) []Band {
 		out[i] = Band{Lo: edges[i], Hi: edges[i+1]}
 	}
 	return out
-}
-
-// runHeatmap counts the matched spans by time bucket (the graph's x-axis)
-// and duration band. Spans with no time, no duration_ms or a duration past
-// maxBandMs are skipped; durations below the lowest band, zero and negative
-// ones included, count in the lowest band.
-func runHeatmap(matched []*record.Record, q Query, from, to time.Time, loc *time.Location) (*Heatmap, error) {
-	var timed []*record.Record
-	var durs []float64
-	h := &Heatmap{}
-	minPos, maxD := math.Inf(1), math.Inf(-1)
-	for _, r := range matched {
-		d, ok := durationMs(r)
-		if !ok || r.Time.IsZero() {
-			h.Skipped++
-			continue
-		}
-		timed = append(timed, r)
-		durs = append(durs, d)
-		if d > 0 {
-			minPos = min(minPos, d)
-		}
-		maxD = max(maxD, d)
-	}
-	if math.IsInf(minPos, 1) {
-		minPos = 1
-	}
-	starts, size, name, _, err := xAxis(timed, q.Bucket, from, to, loc)
-	if err != nil {
-		return nil, err
-	}
-	h.Bucket, h.BucketSeconds, h.Starts = name, size.Seconds(), starts
-	h.Bands = bands(minPos, maxD)
-	h.Counts = make([][]int, len(starts))
-	for i := range h.Counts {
-		h.Counts[i] = make([]int, len(h.Bands))
-	}
-	for i, r := range timed {
-		ti := bucketIndex(starts, r.Time)
-		bi := sort.Search(len(h.Bands), func(j int) bool { return h.Bands[j].Hi > durs[i] })
-		if bi == len(h.Bands) { // past maxBandMs
-			h.Skipped++
-			continue
-		}
-		h.Counts[ti][bi]++
-		h.Total++
-		h.Max = max(h.Max, h.Counts[ti][bi])
-	}
-	return h, nil
 }

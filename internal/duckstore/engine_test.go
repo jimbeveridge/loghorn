@@ -117,22 +117,48 @@ func TestRecordsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTalliesGiveInferSchema(t *testing.T) {
+// TestTallies: a path's tally counts the records of the source, service
+// and stream that hold it (nulls included), and its kinds give the type:
+// int with float is float, a number with a string is a string.
+func TestTallies(t *testing.T) {
 	g := newRig(t)
-	recs := g.add(
+	g.add(
 		logRec(t, "s1", "api", `,"n":7`),
 		logRec(t, "s1", "api", `,"n":7.5,"x":null`),
 		logRec(t, "s2", "api", `,"n":"seven"`),
+		logRec(t, "s1", "web", `,"w":1`),
+		spanRec(t, `{"trace_id":"0af7651916cd43dd8448eb211c80319c","span_id":"a000000000000002","name":"chat","start":"2026-11-17T17:01:01.000Z","end":"2026-11-17T17:01:02.500Z","duration_ms":1500,"service.name":"s1"}`),
 	)
-	for _, svc := range []string{"*", "s1", "s2"} {
-		tl, err := g.e.Tallies(record.SourceLog, svc, "api")
+	type tally struct {
+		count int
+		typ   schema.Type
+	}
+	none := tally{}
+	for _, c := range []struct {
+		src, svc, stream string
+		want             map[string]tally
+	}{
+		{record.SourceLog, "*", "api", map[string]tally{"n": {3, schema.TString}, "x": {1, schema.TString}, "severity": {3, schema.TString}, "w": none, "duration_ms": none}},
+		{record.SourceLog, "", "api", map[string]tally{"n": {3, schema.TString}}},
+		{record.SourceLog, "s1", "api", map[string]tally{"n": {2, schema.TFloat}, "x": {1, schema.TString}}},
+		{record.SourceLog, "s2", "api", map[string]tally{"n": {1, schema.TString}, "x": none}},
+		{record.SourceLog, "*", record.AllStreams, map[string]tally{"n": {3, schema.TString}, "w": {1, schema.TInt}, "severity": {4, schema.TString}, "duration_ms": none}},
+		{record.SourceOtel, "*", record.AllStreams, map[string]tally{"duration_ms": {1, schema.TInt}, "n": none, "w": none}},
+	} {
+		tl, err := g.e.Tallies(c.src, c.svc, c.stream)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := schema.FromTallies(record.SourceLog, "api", tl)
-		want := schema.Infer(svc, record.SourceLog, "api", recs)
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("service %s:\n got %+v\nwant %+v", svc, got, want)
+		sch := schema.FromTallies(c.src, c.stream, tl)
+		for path, w := range c.want {
+			f, ok := sch.Field(path)
+			got := tally{}
+			if ok {
+				got = tally{f.Count, f.Type}
+			}
+			if got != w {
+				t.Errorf("%s %s %s: %s = %+v, want %+v", c.src, c.svc, c.stream, path, got, w)
+			}
 		}
 	}
 }

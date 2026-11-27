@@ -2,13 +2,8 @@ package query
 
 import (
 	"fmt"
-	"math"
-	"sort"
 	"strings"
 	"time"
-
-	"github.com/jimbeveridge/loghorn/internal/record"
-	"github.com/jimbeveridge/loghorn/internal/schema"
 )
 
 // Graph is a time series: one value per series per bucket.
@@ -84,24 +79,6 @@ func bucketStart(t time.Time, size time.Duration, loc *time.Location) time.Time 
 	return mid.Add(lt.Sub(mid) / size * size)
 }
 
-// xAxis is the graph's bucketing, shared by graph and heatmap. timed holds
-// records with a time. The x range is clipped to the data and to [from, to];
-// a zero from or to leaves that side to the data. last is the end of that
-// range; with no records, starts is empty and the bucket is chosen for a
-// zero span.
-func xAxis(timed []*record.Record, bucket string, from, to time.Time, loc *time.Location) (starts []time.Time, size time.Duration, name string, last time.Time, err error) {
-	var first time.Time
-	for _, r := range timed {
-		if first.IsZero() || r.Time.Before(first) {
-			first = r.Time
-		}
-		if last.IsZero() || r.Time.After(last) {
-			last = r.Time
-		}
-	}
-	return axis(first, last, len(timed) > 0, bucket, from, to, loc)
-}
-
 // axis is xAxis given the earliest and latest record times; any is false
 // when there are no timed records.
 func axis(first, last time.Time, any bool, bucket string, from, to time.Time, loc *time.Location) (starts []time.Time, size time.Duration, name string, end time.Time, err error) {
@@ -135,117 +112,4 @@ func axis(first, last time.Time, any bool, bucket string, from, to time.Time, lo
 		}
 	}
 	return starts, size, name, last, nil
-}
-
-// bucketIndex is the index of the bucket holding t: the last start at or
-// before t, or 0 when t is before every start. starts must not be empty.
-func bucketIndex(starts []time.Time, t time.Time) int {
-	return max(sort.Search(len(starts), func(i int) bool { return starts[i].After(t) })-1, 0)
-}
-
-// runGraph buckets the timed matched records. The x range is clipped to the
-// data and to [from, to]; a zero from or to leaves that side to the data.
-func runGraph(matched []*record.Record, s schema.Schema, q Query, from, to time.Time, loc *time.Location) (*Graph, error) {
-	plot := Aggregate{Op: "count"}
-	if q.Plot != nil {
-		plot = *q.Plot
-	}
-	g := &Graph{Metric: metricColumn(plot, s), GroupBy: append([]string(nil), q.GroupBy...), Starts: []time.Time{}, Series: []Series{}}
-
-	var timed []*record.Record
-	for _, r := range matched {
-		if !r.Time.IsZero() {
-			timed = append(timed, r)
-		}
-	}
-	starts, size, name, last, err := xAxis(timed, q.Bucket, from, to, loc)
-	if err != nil {
-		return nil, err
-	}
-	g.Starts, g.Bucket, g.BucketSeconds = starts, name, size.Seconds()
-	if len(timed) == 0 {
-		return g, nil
-	}
-
-	// Group the records, then rank groups by the order metric (count by
-	// default) over the whole range.
-	gfields := make([]schema.Field, len(q.GroupBy))
-	for i, p := range q.GroupBy {
-		gfields[i] = lookupField(s, p)
-	}
-	type grp struct {
-		key    string
-		labels []string
-		recs   []*record.Record
-	}
-	var groups []*grp
-	byKey := map[string]*grp{}
-	for _, r := range timed {
-		if r.Time.Before(g.Starts[0]) || r.Time.After(last) {
-			continue
-		}
-		key, labels, _ := groupKey(r, gfields)
-		x := byKey[key]
-		if x == nil {
-			x = &grp{key: key, labels: labels}
-			byKey[key] = x
-			groups = append(groups, x)
-		}
-		x.recs = append(x.recs, r)
-	}
-	rankGroups(groups, func(x *grp) ([]*record.Record, string) { return x.recs, x.key }, q.Order, s)
-
-	var plotField schema.Field
-	if plot.Op != "count" {
-		plotField = metricField(s, plot)
-	}
-	build := func(label string, labels []string, other bool, recs []*record.Record) Series {
-		per := make([][]*record.Record, len(g.Starts))
-		for _, r := range recs {
-			i := bucketIndex(g.Starts, r.Time)
-			per[i] = append(per[i], r)
-		}
-		vals := make([]*float64, len(g.Starts))
-		for i, rs := range per {
-			if plot.Op == "count" {
-				v := float64(len(rs))
-				vals[i] = &v
-				continue
-			}
-			if v, ok := metricValue(rs, plot, plotField); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
-				vals[i] = &v
-			}
-		}
-		if labels == nil {
-			labels = []string{}
-		}
-		return Series{Label: label, Group: labels, Other: other, Count: len(recs), Values: vals}
-	}
-
-	if len(gfields) == 0 {
-		if len(groups) > 0 {
-			g.Series = append(g.Series, build("all", nil, false, groups[0].recs))
-		}
-		return g, nil
-	}
-	top := q.Top
-	if top <= 0 {
-		top = DefaultTop
-	}
-	top = min(top, MaxGraphTop)
-	g.Groups, g.Top = len(groups), top
-	for i, x := range groups {
-		if i >= top {
-			break
-		}
-		g.Series = append(g.Series, build(strings.Join(x.labels, " · "), x.labels, false, x.recs))
-	}
-	if len(groups) > top {
-		var rest []*record.Record
-		for _, x := range groups[top:] {
-			rest = append(rest, x.recs...)
-		}
-		g.Series = append(g.Series, build("other", nil, true, rest))
-	}
-	return g, nil
 }

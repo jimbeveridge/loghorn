@@ -235,7 +235,7 @@ func TestToSQLDuckDB(t *testing.T) {
 			if c.q.Source == record.SourceOtel {
 				s = duckSpanSchema
 			}
-			res, err := Run(recs, s, c.q, duckNow, time.Time{})
+			res, err := runSQL(t, recs, s, c.q, duckNow, time.Time{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -248,7 +248,7 @@ func TestToSQLDuckDB(t *testing.T) {
 	}
 }
 
-// duckCheck compares the rows of a query's SQL with its Run result.
+// duckCheck compares the rows of a query's SQL with its RunSQL result.
 func duckCheck(t *testing.T, q Query, res Result, rows []map[string]any, sql string) {
 	t.Helper()
 	switch q.View {
@@ -301,7 +301,7 @@ func duckCases() []duckCase {
 func duckCheckTable(t *testing.T, res Result, rows []map[string]any, sql string) {
 	t.Helper()
 	if len(rows) != len(res.Rows) {
-		t.Fatalf("%d rows, Run has %d\nSQL:\n%s\nrows: %v", len(rows), len(res.Rows), sql, rows)
+		t.Fatalf("%d rows, RunSQL has %d\nSQL:\n%s\nrows: %v", len(rows), len(res.Rows), sql, rows)
 	}
 	for i, r := range res.Rows {
 		for j, col := range res.Columns {
@@ -335,7 +335,7 @@ func duckCheckTable(t *testing.T, res Result, rows []map[string]any, sql string)
 					t.Errorf("row %d %s = %v, want %v", i, col.Path, g, w)
 				}
 			default:
-				t.Fatalf("row %d %s: Run cell %T", i, col.Path, want)
+				t.Fatalf("row %d %s: RunSQL cell %T", i, col.Path, want)
 			}
 		}
 	}
@@ -359,7 +359,7 @@ func duckCheckGraph(t *testing.T, res Result, rows []map[string]any, sql string)
 		wide[s][duckBucket(t, r["bucket"]).UnixMicro()] = r["value"]
 	}
 	if len(g.Series) == 0 && len(rows) > 0 {
-		t.Fatalf("Run has no series; SQL rows %v", rows)
+		t.Fatalf("RunSQL has no series; SQL rows %v", rows)
 	}
 	seen := 0
 	for _, se := range g.Series {
@@ -393,10 +393,10 @@ func duckCheckGraph(t *testing.T, res Result, rows []map[string]any, sql string)
 		}
 	}
 	if seen != len(rows) {
-		t.Errorf("SQL has %d rows, Run's series match %d of them", len(rows), seen)
+		t.Errorf("SQL has %d rows, RunSQL's series match %d of them", len(rows), seen)
 	}
 	if len(order) != len(g.Series) {
-		t.Errorf("SQL series %v, Run has %d", order, len(g.Series))
+		t.Errorf("SQL series %v, RunSQL has %d", order, len(g.Series))
 	}
 	if t.Failed() {
 		t.Logf("SQL:\n%s\nrows: %v", sql, rows)
@@ -414,13 +414,13 @@ func duckCheckHeatmap(t *testing.T, res Result, rows []map[string]any, sql strin
 	for _, r := range rows {
 		ti, ok := idx[duckBucket(t, r["bucket"]).UnixMicro()]
 		if !ok {
-			t.Fatalf("bucket %v is not one of Run's", r["bucket"])
+			t.Fatalf("bucket %v is not one of RunSQL's", r["bucket"])
 		}
 		bi := int(duckNum(t, r["band"]))
 		n := int(duckNum(t, r["count"]))
 		total += n
 		if n != h.Counts[ti][bi] {
-			t.Errorf("cell %v band %d = %d, Run has %d", r["bucket"], bi, n, h.Counts[ti][bi])
+			t.Errorf("cell %v band %d = %d, RunSQL has %d", r["bucket"], bi, n, h.Counts[ti][bi])
 		}
 		if bi == 0 {
 			if r["lo"] != nil {
@@ -434,7 +434,7 @@ func duckCheckHeatmap(t *testing.T, res Result, rows []map[string]any, sql strin
 		}
 	}
 	if total != h.Total {
-		t.Errorf("SQL counts %d spans, Run %d", total, h.Total)
+		t.Errorf("SQL counts %d spans, RunSQL %d", total, h.Total)
 	}
 	if t.Failed() {
 		t.Logf("SQL:\n%s\nrows: %v", sql, rows)

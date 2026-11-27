@@ -117,35 +117,7 @@ func TallyType(path string, k KindSet) Type {
 	return TString
 }
 
-// Infer builds a schema for the stream (source, stream) from its records;
-// "" means the log source. service restricts it to one service's records;
-// "" or "*" means every service. A source record.ParseSource refuses matches no
-// records. It never reads a saved schema; merging is the caller's job.
-func Infer(service, source, stream string, recs []record.Record) Schema {
-	src, ok := record.ParseSource(source)
-	if !ok {
-		src = source
-	}
-	key := record.StreamKey{Source: src, Name: stream}
-	tallies := map[string]Tally{}
-	for i := range recs {
-		if !ok || (stream != record.AllStreams && recs[i].Key() != key) || (stream == record.AllStreams && recs[i].Key().Source != src) {
-			continue
-		}
-		if service != "" && service != "*" && recs[i].Service != service {
-			continue
-		}
-		for path, v := range recs[i].Fields {
-			t := tallies[path]
-			t.Count++
-			t.Kinds |= Classify(v)
-			tallies[path] = t
-		}
-	}
-	return FromTallies(src, stream, tallies)
-}
-
-// FromTallies builds the schema Infer gives for per-path tallies. source must
+// FromTallies builds a stream's schema from its per-path tallies. source must
 // already be parsed (or is kept as given).
 func FromTallies(source, stream string, tallies map[string]Tally) Schema {
 	s := Schema{Stream: stream, Source: source, Fields: make([]Field, 0, len(tallies))}
@@ -258,8 +230,9 @@ func isStackPath(path string) bool {
 }
 
 // DefaultVisualizer picks how an unconfigured field is shown from its path
-// and type. Infer also shows a string field as multiline when one of its
-// values holds a newline; that needs the values, so it is not done here.
+// and type. FromTallies also shows a string field as multiline when one of its
+// values holds a newline (the Lines kind); that needs the values, so it is
+// not done here.
 func DefaultVisualizer(path string, t Type) string {
 	switch {
 	case path == "pid", path == "httpRequest.status":

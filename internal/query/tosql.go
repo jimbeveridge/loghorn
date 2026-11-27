@@ -65,12 +65,12 @@ const errorSeverityRE = `'[\t-\r\x{85}\p{Z}]*(ERROR|CRITICAL|ALERT|EMERGENCY|FAT
 // of them (DuckDB identifiers are case-insensitive) has no column.
 var modelColumns = []string{"seq", "time", "service", "raw"}
 
-// sqlZone names the time zone Run counts 6h and 1d buckets in (time.Local)
+// sqlZone names the time zone RunSQL counts 6h and 1d buckets in (time.Local)
 // as an IANA name DuckDB knows. Tests replace it.
 var sqlZone = localZoneName
 
 // ToSQL translates q into a DuckDB statement over the table model in
-// SQLHeader that selects the same rows Run does. r is the result of running
+// SQLHeader that selects the same rows RunSQL does. r is the result of running
 // q; it supplies what exists only after a run (the samples column list when
 // q names none, the graph and heatmap bucket, the heatmap bands). Anything
 // that cannot be expressed exactly is an error. The layout is written here by
@@ -605,7 +605,7 @@ func (b *sqlBuilder) source(q Query, s schema.Schema) (string, error) {
 }
 
 // where is the list of conditions (ANDed) for service, range, search,
-// filters and cell, in Run's order.
+// filters and cell, in RunSQL's order.
 func (b *sqlBuilder) where(q Query, s schema.Schema) ([]string, error) {
 	var conds []string
 	if q.Service != "" && q.Service != "*" {
@@ -646,7 +646,7 @@ func (b *sqlBuilder) where(q Query, s schema.Schema) ([]string, error) {
 
 // rangeConds translates the range as stated: relative stays relative,
 // absolute stays absolute, this-run stays symbolic. A record with no time
-// is outside any range with a from, as in Run, and inside one with only a to.
+// is outside any range with a from, as in RunSQL, and inside one with only a to.
 func (b *sqlBuilder) rangeConds(rg Range) ([]string, error) {
 	var conds []string
 	hasFrom := false
@@ -725,8 +725,8 @@ func timestampLit(t time.Time) (string, error) {
 	return "TIMESTAMPTZ '" + t.UTC().Format(time.RFC3339Nano) + "'", nil
 }
 
-// filterCond translates one filter with compiled.match's semantics. An
-// empty value (NULL) matches empty, != and not-in, as in Run.
+// filterCond translates one filter as RunSQL applies it. An empty value
+// (NULL) matches empty, != and not-in.
 func filterCond(f Filter, s schema.Schema) (string, error) {
 	id, err := fieldIdent(f.Field)
 	if err != nil {
@@ -838,7 +838,7 @@ func cellConds(c *HeatCell, s schema.Schema) ([]string, error) {
 	return append(conds, id+" < "+hi), nil
 }
 
-// sqlOrder is the ORDER BY list of Run's sort: the effective time, or a
+// sqlOrder is the ORDER BY list of RunSQL's sort: the effective time, or a
 // field with missing values last in both directions (DuckDB's default
 // NULLS LAST), ties broken on seq in the same direction.
 func sqlOrder(so Sort, s schema.Schema) (string, error) {
@@ -851,7 +851,7 @@ func sqlOrder(so Sort, s schema.Schema) (string, error) {
 		dir = " DESC"
 	}
 	if field == "timestamp" {
-		// Run sorts a record with no time as the zero time: first ascending.
+		// RunSQL sorts a record with no time as the zero time: first ascending.
 		if desc {
 			return `"time" DESC NULLS LAST, seq DESC`, nil
 		}
@@ -861,7 +861,7 @@ func sqlOrder(so Sort, s schema.Schema) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Run sorts a missing or bad value last in either direction. Explicit,
+	// RunSQL sorts a missing or bad value last in either direction. Explicit,
 	// so a changed default_null_order can't reorder the rows.
 	return id + dir + " NULLS LAST, seq" + dir, nil
 }
@@ -896,7 +896,7 @@ func quoteString(s string) (string, error) {
 
 // likePattern is the quoted ILIKE pattern matching v anywhere, with the
 // escape character \ and the wildcards % and _ escaped. v is lowercased as
-// Run lowercases search and contains values.
+// RunSQL lowercases search and contains values.
 func likePattern(v string) (string, error) {
 	v = strings.ToLower(v)
 	v = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(v)

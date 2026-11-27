@@ -21,9 +21,9 @@ type Backend interface {
 	Rebuild(id int64, t time.Time, inherited bool, service, source, stream, raw string) record.Record
 }
 
-// RunSQL answers q as Run does, with SQL deciding which records match, their
-// order, groups and metrics; what is shown is built from the records rebuilt
-// from their raw lines, so it is exactly what Run shows.
+// RunSQL answers q, with SQL deciding which records match, their order,
+// groups and metrics; what is shown is built from the records rebuilt from
+// their raw lines.
 func RunSQL(ctx context.Context, b Backend, s schema.Schema, q Query, now, runStart time.Time) (Result, error) {
 	if err := q.Validate(s); err != nil {
 		return Result{}, err
@@ -173,7 +173,7 @@ func (x *sqlRun) where(from, to time.Time) func() string {
 	}
 }
 
-// filter is compiled.match in SQL. Values that are bad have a NULL value
+// filter is one compiled filter in SQL. Values that are bad have a NULL value
 // and a true bad flag; empty ones have both NULL/false.
 func (x *sqlRun) filter(c compiled) string {
 	i := x.need(c.sfield)

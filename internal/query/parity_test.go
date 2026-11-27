@@ -156,8 +156,8 @@ func TestErrorRateTrimsLikeGo(t *testing.T) {
 
 // TestSearchFoldsUnicodeCase: search matches case-insensitively by Unicode
 // rules (DuckDB's lower()), not only ASCII: "istanbul" finds "İSTANBUL" and
-// "ÜNÏCODE" finds "ünïcode". Run folds only ASCII for an ASCII term, so
-// these are written expected values, not Run's answers (D-032, review §2.3).
+// "ÜNÏCODE" finds "ünïcode". The removed Go engine folded only ASCII for
+// an ASCII term (D-032, review §2.3).
 func TestSearchFoldsUnicodeCase(t *testing.T) {
 	var recs []record.Record
 	for _, r := range parityRecords(t) {

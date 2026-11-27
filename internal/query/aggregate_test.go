@@ -196,34 +196,20 @@ func TestSamplesUnchangedWhenViewEmpty(t *testing.T) {
 	}
 }
 
-func TestP90(t *testing.T) {
-	var recs []*record.Record
-	var vals []float64
-	for i := 1; i <= 10; i++ {
-		recs = append(recs, &record.Record{Fields: map[string]any{"lat": json.Number(fmt.Sprint(i))}})
-		vals = append(vals, float64(i))
-	}
-	got, ok := metricValue(recs, Aggregate{Op: "p90", Field: "lat"}, latF)
-	if !ok || got != percentile(vals, 90) {
-		t.Errorf("p90 = %v %v, want %v", got, ok, percentile(vals, 90))
-	}
-}
-
+// TestErrorRate: error_rate is the share of records whose severity is an
+// error, in any case; a record with no severity counts as not an error.
 func TestErrorRate(t *testing.T) {
-	mk := func(sev any) *record.Record {
-		f := map[string]any{}
+	var recs []record.Record
+	for i, sev := range []any{"ERROR", "error", "INFO", nil} {
+		r := rec(i+1, t0, "x")
 		if sev != nil {
-			f["severity"] = sev
+			r.Fields["severity"] = sev
 		}
-		return &record.Record{Fields: f}
+		recs = append(recs, r)
 	}
-	recs := []*record.Record{mk("ERROR"), mk("error"), mk("INFO"), mk(nil)}
-	got, ok := metricValue(recs, Aggregate{Op: "error_rate"}, schema.Field{})
-	if !ok || got != 0.5 {
-		t.Errorf("error_rate = %v %v, want 0.5", got, ok)
-	}
-	if _, ok := metricValue(nil, Aggregate{Op: "error_rate"}, schema.Field{}); ok {
-		t.Error("empty group has a value")
+	res := run(t, recs, sch(), Query{View: "table", Aggregates: []Aggregate{{Op: "error_rate"}}})
+	if len(res.Rows) != 1 || fmt.Sprint(cellsOf(res, 0)) != "[4 0.5]" {
+		t.Errorf("error_rate rows = %+v, want one row [4 0.5]", res.Rows)
 	}
 	c := metricColumn(Aggregate{Op: "error_rate"}, sch())
 	if c.Path != "error_rate" || c.Type != schema.TFloat {

@@ -357,7 +357,7 @@ func TestEndToEndPino(t *testing.T) {
 			recs = append(recs, r)
 		}
 	}
-	s := schema.Infer("*", "", "db", recs)
+	s := inferred(t, recs, record.SourceLog, "db")
 	q := Query{Stream: "db", Range: Range{From: "all"}, Filters: []Filter{{Field: "latency", Op: ">", Values: []string{"50ms"}}}}
 	res := run(t, recs, s, q)
 	if res.Matched != 1 {
@@ -407,12 +407,12 @@ func TestRunFiltersBySource(t *testing.T) {
 		{Seq: 1, Time: t0, Stream: "db", Source: "log", Fields: map[string]any{"a": "x"}},
 		{Seq: 2, Time: t0, Stream: "db", Source: "otel", Fields: map[string]any{"b": "y"}},
 	}
-	s := schema.Infer("*", "otel", "db", recs)
+	s := inferred(t, recs, record.SourceOtel, "db")
 	res := run(t, recs, s, Query{Stream: "db", Source: "otel", Range: Range{From: "all"}})
 	if res.StreamTotal != 1 || res.Matched != 1 || res.Rows[0].Seq != 2 {
 		t.Fatalf("otel: %+v", res)
 	}
-	s = schema.Infer("*", "", "db", recs)
+	s = inferred(t, recs, record.SourceLog, "db")
 	res = run(t, recs, s, Query{Stream: "db", Range: Range{From: "all"}})
 	if res.StreamTotal != 1 || res.Matched != 1 || res.Rows[0].Seq != 1 {
 		t.Fatalf("log: %+v", res)
@@ -441,7 +441,7 @@ func TestRunIntervalColumns(t *testing.T) {
 	old := rec(1, t0.Add(-time.Hour), "x", "foo", "1")
 	in := rec(2, t0.Add(-time.Minute), "x", "bar", "1")
 	recs := []record.Record{old, in}
-	s := schema.Infer("*", "", "a", recs)
+	s := inferred(t, recs, record.SourceLog, "a")
 	q := Query{Range: Range{From: "10m"}}
 	res := run(t, recs, s, q)
 	var got []string

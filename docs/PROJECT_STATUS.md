@@ -114,7 +114,7 @@ tests that failed before its fix.
 
 ### Measurements (about 770k records in one day; MacBook, arm64, 8 CPUs, 16 GB)
 
-`LOGHORN_SPEED=1 LOGHORN_SPEED_DUCKDB_ONLY=1 go test -run SpeedAtScale -v -timeout 30m ./internal/store`.
+`LOGHORN_SPEED=1 go test -run SpeedAtScale -v -timeout 30m ./internal/store`.
 Medians of 5 warm runs, through the store as the web view calls it.
 Measured 2026-11-25 on the one-table build (D-030); the two-file build's
 numbers from 2026-11-24 are in the last column for comparison.
@@ -192,8 +192,7 @@ Left as known limits: below.
   readable by them until then. serve creates the folder owner-only (0700).
 - A string that isn't valid UTF-8 is queried with U+FFFD in place of the
   bad bytes (D-025).
-- Search folds case by Unicode rules; `query.Run`, kept as the test
-  reference, folds only ASCII (D-032).
+- Search folds case by Unicode rules (D-032).
 
 ### Next actions
 
