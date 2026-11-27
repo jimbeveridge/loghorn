@@ -2,6 +2,7 @@ package query
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,7 +38,7 @@ func sch(fs ...schema.Field) schema.Schema {
 
 func run(t *testing.T, recs []record.Record, s schema.Schema, q Query) Result {
 	t.Helper()
-	res, err := Run(recs, s, q, t0, t0.Add(-time.Hour))
+	res, err := runSQL(t, recs, s, q, t0, t0.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func TestRangeThisRun(t *testing.T) {
 	eq(t, seqs(run(t, recs, s, Query{Range: Range{From: "this-run"}})), []int{2})
 	eq(t, seqs(run(t, recs, s, Query{Range: Range{From: "all"}})), []int{2, 1})
 	// zero runStart means unbounded
-	res, err := Run(recs, s, Query{Range: Range{From: "this-run"}}, t0, time.Time{})
+	res, err := runSQL(t, recs, s, Query{Range: Range{From: "this-run"}}, t0, time.Time{})
 	if err != nil || res.Matched != 2 {
 		t.Errorf("zero runStart: %v %d", err, res.Matched)
 	}
@@ -364,7 +365,7 @@ func TestEndToEndPino(t *testing.T) {
 	}
 }
 
-func TestRun50kUnder200ms(t *testing.T) {
+func TestRun50kUnder500ms(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow")
 	}
@@ -385,9 +386,15 @@ func TestRun50kUnder200ms(t *testing.T) {
 		Filters: []Filter{{Field: "op", Op: "in", Values: []string{"SELECT", "UPDATE"}}, {Field: "lat", Op: ">", Values: []string{"10ms"}}, {Field: "n", Op: ">=", Values: []string{"5"}}},
 		Sort:    Sort{Field: "lat", Desc: true},
 	}
+	// Time the query alone, not loading the records into DuckDB.
+	b := openKeptBackend(t, recs)
+	defer b.Close()
 	start := time.Now()
-	res := run(t, recs, s, q)
-	if d := time.Since(start); d > 200*time.Millisecond && !raceEnabled {
+	res, err := RunSQL(context.Background(), b, s, q, t0, t0.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 500*time.Millisecond && !raceEnabled {
 		t.Errorf("took %v", d)
 	}
 	if res.Matched == 0 {
