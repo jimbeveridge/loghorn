@@ -36,7 +36,7 @@ Where the SQL runs: only `loghorn serve` may open `loghorn.duckdb` (D-030), so t
 
 ## Design
 
-**Endpoint.** `POST /api/sql` with `{"sql": "...", "format": "tsv", "limit": 1000}`, socket only. It answers the rows in the export format, or a JSON `{"error": ...}` with status 400. A cut result sets `X-Loghorn-Note: showing the first N rows; add LIMIT or pass -limit`. The query runs under the request context with a 30 s timeout.
+**Endpoint.** `POST /api/sql` with `{"sql": "...", "format": "tsv", "limit": 1000}`, socket only. It answers the rows in the export format, or a JSON `{"error": ...}` with status 400. A cut result sets `X-Loghorn-Note: showing the first N rows; add LIMIT or pass -limit`. The query runs under the request context with a 10 s timeout, and `limit` may not exceed 100,000.
 
 **Read-only guard.** DuckDB's own parser decides: `json_serialize_sql(sql)` must succeed (it accepts only queries: `SELECT`, `WITH`, `FROM`-first, `DESCRIBE`, `SHOW`, `SUMMARIZE`, set operations) and hold exactly one statement. The serialized tree is then walked: every table function must be on a short list (`range`, `generate_series`, `unnest`, `json_each`, `json_tree`, `duckdb_*` catalog functions), and every table reference must be a CTE name or sit in the `logs`, `spans`, `loghorn`, `information_schema` or `pg_catalog` schemas. `DESCRIBE`, `SHOW` and `SUMMARIZE` serialize as `SELECT`, so the guard treats them as queries. That blocks `read_text`, `read_csv`, `query()`, and `FROM 'file.csv'` replacement scans. The check runs on a separate connection before the query.
 

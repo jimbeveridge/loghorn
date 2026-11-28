@@ -20,9 +20,9 @@ import (
 // write stores one batch, logs and spans alike, with its tallies in one
 // transaction. When the batch fails, memory tells the cause apart: if memory
 // takes it, the file is at fault and the rest of the session goes to memory;
-// if memory refuses it too, a record's data is at fault, so the batch is
-// stored row by row and only the refused records are skipped (they stay in
-// the text log).
+// if memory refuses it too, the batch is stored row by row and only the
+// refused records are skipped (they stay in the text log), unless writeRows
+// finds DuckDB itself failing.
 func (e *Engine) write(batch []record.Record) {
 	defer e.archiveAtMidnight(batch)
 	p := e.dest
@@ -42,21 +42,28 @@ func (e *Engine) write(batch []record.Record) {
 }
 
 // writeRows stores batch one record at a time, skipping the records p
-// refuses. batchErr is why the whole batch failed: when the first record
-// alone fails with that same error, the fault isn't in the data (DuckDB
-// itself is failing), so the rest isn't tried. Those records are counted as
-// skipped, leaving the files to be imported again from text; a record
-// refused for its own data is not, or every start would import it again.
-// Each distinct error is warned about once.
+// refuses. batchErr is why the whole batch failed. A bad record refuses the
+// batch with its own error, so one record failing that way proves nothing;
+// when the first two records (or the only one) each fail with batchErr, the
+// fault isn't in the data (DuckDB itself is failing), so the rest isn't
+// tried. Those records are counted as skipped, leaving the files to be
+// imported again from text; a record refused for its own data is not, or
+// every start would import it again. Each distinct error is warned about
+// once.
 func (e *Engine) writeRows(p *part, batch []record.Record, batchErr error) {
 	skipped := 0
 	var first error
+	headSame := false // the first record failed with batchErr
 	for i, r := range batch {
 		err := e.writeTx(p, []record.Record{r})
 		if err == nil {
 			continue
 		}
-		if i == 0 && err.Error() == batchErr.Error() {
+		same := err.Error() == batchErr.Error()
+		if i == 0 {
+			headSame = same
+		}
+		if headSame && same && (i == 1 || len(batch) == 1) {
 			e.mu.Lock()
 			e.skipped += len(batch)
 			e.mu.Unlock()

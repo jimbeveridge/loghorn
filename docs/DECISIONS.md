@@ -469,8 +469,8 @@ or has not yet answered.
   external access off except for the data folder, and extension
   autoinstall and autoload off. The row cap is part of the query
   (`SELECT * FROM (…) LIMIT n+1`), since DuckDB builds the whole answer
-  before the first row is read. At most 1,000 rows unless `-limit`; 30 s
-  timeout.
+  before the first row is read. At most 1,000 rows unless `-limit`, which
+  may not exceed 100,000; 10 s timeout.
 - **Why:** Only serve may open the database (D-030), and agents run many
   small queries in a row, so each must be bounded and fail with DuckDB's
   own message. Views over `records` store nothing twice (D-030).

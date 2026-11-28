@@ -1,7 +1,6 @@
 package duckstore
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/jimbeveridge/loghorn/internal/schema"
@@ -35,11 +34,6 @@ func ident(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"
 
 // lit quotes a string literal.
 func lit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
-// flit is a DOUBLE literal that reads back as exactly f.
-func flit(f float64) string {
-	return "CAST(" + lit(strconv.FormatFloat(f, 'g', -1, 64)) + " AS DOUBLE)"
-}
 
 func nullOf(t schema.Type) string { return "CAST(NULL AS " + sqlType(t) + ")" }
 

@@ -34,7 +34,7 @@ folding. D-025 and D-026 are superseded.
 | One `records` table in `loghorn.duckdb` (D-030) | 2026-11-25 | Tests changed first and failed; `go test ./...`; `-race`; all 8055 parity queries | `bda983e` |
 | `loghorn query -sql` (D-031) | 2026-11-25 | Guard, view and CLI tests; `-to-sql` output equals the web view's rows (`TestToSQLOverModel`) | see "SQL from the command line" |
 | The 2026-11-27 review's fixes (§1-§3, below) | 2026-11-27 | Each commit names the tests that failed first | `ac7a073`..`b3289df` |
-| Post-merge fixes plan, tasks 1-6 (`docs/superpowers/plans/2026-11-27-post-merge-fixes.md`): Go query engine removed (D-033), ids stay unique and serve stays findable when DuckDB reads fail, `-sql` capped at 100,000 rows and 10 s with config locked, duration fast path equal to `ParseDuration`, docs brought up to date | 2026-11-27 | `gofmt`, `go vet ./...`, `go test -race ./...` after each task; reviews per task | `d31a3d2`..this task's commit |
+| Post-merge fixes plan, tasks 1-6 (`docs/superpowers/plans/2026-11-27-post-merge-fixes.md`): Go query engine removed (D-033), ids stay unique and serve stays findable when DuckDB reads fail, `-sql` capped at 100,000 rows and 10 s with config locked, duration fast path equal to `ParseDuration`, docs brought up to date | 2026-11-27 | `gofmt`, `go vet ./...`, `go test -race ./...` after each task; reviews per task | `d31a3d2`..`65def63` |
 
 ### After merging upstream main (2026-11-25)
 
@@ -138,6 +138,12 @@ numbers from 2026-11-24 are in the last column for comparison.
   cover `loghorn query -sql`, ranges of several days (which also read the
   Parquet archives), a cold start (first query after open, or the import
   itself: about 20 s), or the in-memory fallback.
+- They predate two changes to duration parsing: the exact-duration
+  conversion (`521a039`, about 2.4x slower per duration value) and the
+  later fast path for whole-number durations (`dde15d2`), which a
+  fractional value such as `"0.123s"` does not take. Until re-measured,
+  the table p95 figure and the line below are stale; the table p95 over
+  a fractional latency field may now exceed the ~500 ms target.
 - Every representative request is under the ~500 ms target, and the one
   table is as fast or faster than two everywhere. Table p95 is still the
   slowest: the latency field is text (`"0.123s"`) parsed per record.

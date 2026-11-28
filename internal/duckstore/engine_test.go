@@ -405,8 +405,8 @@ func TestMemoryEngineSpillsToItsOwnTempDir(t *testing.T) {
 }
 
 // TestRowRetryStopsOnSameError: when DuckDB refuses a batch everywhere and
-// its first row alone fails the same way, the fault isn't in the rows: the
-// batch is skipped (and counted) without a row-by-row retry, and each
+// its first two rows alone fail the same way, the fault isn't in the rows:
+// the batch is skipped (and counted) without a row-by-row retry, and each
 // distinct error is warned about once per session.
 func TestRowRetryStopsOnSameError(t *testing.T) {
 	batch := func(n int) []record.Record {
@@ -435,9 +435,9 @@ func TestRowRetryStopsOnSameError(t *testing.T) {
 		e.write(batch(10))
 		e.write(batch(10))
 		e.wmu.Unlock()
-		// Per batch: the batch in memory, then its first row (memory) or
-		// nothing more (the file, refused before any row is looked at).
-		want := 4
+		// Per batch: the batch in memory, then its first two rows (memory)
+		// or nothing more (the file, refused before any row is looked at).
+		want := 6
 		if file {
 			want = 2
 		}

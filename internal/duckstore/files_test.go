@@ -150,24 +150,34 @@ func TestOutOfRangeTimeKeepsTheBatch(t *testing.T) {
 
 // TestBadRowSkipsOnlyItself: a row DuckDB refuses for its data, in memory
 // as well as in the file, is skipped with a warning; the rest of the batch
-// is stored and the files stay in use (review §1.1).
+// is stored, the files stay in use (review §1.1), and the row isn't counted
+// as skipped, so the files aren't imported again. That holds when the bad
+// row comes first too, where the batch fails with the row's own error.
 func TestBadRowSkipsOnlyItself(t *testing.T) {
-	var warns []string
-	e := openFiles(t, t.TempDir(), func(m string) { warns = append(warns, m) })
-	defer e.Close()
-	e.wmu.Lock()
-	e.rejectRow = func(r record.Record) bool { return r.Seq == 2 }
-	e.wmu.Unlock()
-	addSync(t, e, withSeq(logRec(t, "api", "s", ``), 1), withSeq(logRec(t, "api", "s", ``), 2), withSeq(logRec(t, "api", "s", ``), 3))
-	if e.failed {
-		t.Fatal("a bad row sent the session to memory")
-	}
-	var n int
-	if err := e.DB().QueryRow("SELECT count(*) FROM loghorn_db.main.records").Scan(&n); err != nil || n != 2 {
-		t.Fatalf("file holds %d records (%v), want 2", n, err)
-	}
-	if len(warns) != 1 || !strings.Contains(warns[0], "skipped") {
-		t.Errorf("warnings %q", warns)
+	for _, bad := range []int{1, 2} {
+		var warns []string
+		e := openFiles(t, t.TempDir(), func(m string) { warns = append(warns, m) })
+		e.wmu.Lock()
+		e.rejectRow = func(r record.Record) bool { return r.Seq == bad }
+		e.wmu.Unlock()
+		addSync(t, e, withSeq(logRec(t, "api", "s", ``), 1), withSeq(logRec(t, "api", "s", ``), 2), withSeq(logRec(t, "api", "s", ``), 3))
+		if e.failed {
+			t.Fatalf("bad=%d: a bad row sent the session to memory", bad)
+		}
+		var n int
+		if err := e.DB().QueryRow("SELECT count(*) FROM loghorn_db.main.records").Scan(&n); err != nil || n != 2 {
+			t.Errorf("bad=%d: file holds %d records (%v), want 2", bad, n, err)
+		}
+		if len(warns) != 1 || !strings.Contains(warns[0], "skipped") {
+			t.Errorf("bad=%d: warnings %q", bad, warns)
+		}
+		e.mu.Lock()
+		skipped := e.skipped
+		e.mu.Unlock()
+		if skipped != 0 {
+			t.Errorf("bad=%d: skipped %d, want 0 (a data fault must not force a re-import)", bad, skipped)
+		}
+		e.Close()
 	}
 }
 

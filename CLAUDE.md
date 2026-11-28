@@ -10,8 +10,9 @@
 - `serve` (`internal/serve`): take the data folder's lock, then open the
   store (which may import the text files first), then bind the socket and
   both ports, and only then serve. Consequence: serve is unreachable while
-  the import runs, so clients see no socket until it ends; a failure undoes what came
-  before it, so a supervisor can restart serve cleanly. serve never forks.
+  the import runs, so clients see no socket until it ends.
+- A failure in `serve` undoes what came before it, so a supervisor can
+  restart serve cleanly. serve never forks.
 
 ## Commands and serve
 
