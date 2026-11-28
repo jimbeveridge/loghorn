@@ -121,6 +121,9 @@
 - The demo loads spans with `-spans FILE` (lines as in serve's
   `loghorn.traces.jsonl`); the Spans stream list stays empty until a
   service is selected.
+- Table and graph groups that tie order by count descending, then by the
+  group key's text: a timestamp group sorts by its RFC 3339 string, not by
+  time.
 
 ## Go modules
 
@@ -128,6 +131,13 @@ After `go get` of a module with generated protobuf code (e.g.
 `go.opentelemetry.io/proto/otlp`), run `go mod tidy`: `go get` alone leaves
 go.sum without the entries for its transitive grpc/grpc-gateway imports, and
 the build fails on a clean checkout.
+
+To find dead code, run
+`golangci-lint run --no-config --default=none -E unused --tests=false ./internal/...`
+(it lists unexported functions only tests use), and repeat until it prints
+nothing. When deleting code, grep the comments for its names too: comments in
+`tosql.go` and `sqlrun.go` once defined SQL behaviour by naming the Go
+functions they mirrored.
 
 ## Config lookups that walk up the tree
 
@@ -144,3 +154,21 @@ DuckDB's agent mode changes the `-json` output (see
 `internal/query/tosql_duckdb_test.go`). A DuckDB decimal literal such as
 `0.95` is a DECIMAL; cast it to DOUBLE wherever the SQL must match Go's
 float64 math.
+
+- Generated SQL re-evaluates an expression at every use: `trim(x,
+  schema.Space)` costs about 90 ms per million rows per use, and binding it
+  through a one-element list lambda is slower still. Put a cheap test on the
+  raw value before trimming (see `durationSQL`).
+- The engine's config is locked at the end of `harden()`
+  (`lock_configuration`). Tests can't `SET` anything (TimeZone etc.) on
+  `e.DB()`, and any new setting must be applied inside `harden()`.
+- `Engine.warned` (`warnOnce`/`warnKeyed`) has no lock of its own and is used
+  only on the writer under `wmu`. Don't call it from `Store.add` (under
+  `s.mu`); use `Engine.Warn` with a once flag on the store side.
+- The test hooks `failWrites` and `rejectRow` return one fixed error text for
+  every row. Calling `e.write` directly under `e.wmu` gives a test
+  deterministic batches.
+- `writeRows` gives up on a batch as "DuckDB is failing" only when its first
+  two rows (or its only row) each fail with the batch's own error text. A bad
+  row makes its whole batch fail with that row's error, so one failing row
+  proves nothing.
